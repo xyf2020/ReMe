@@ -33,9 +33,10 @@ class LLMDemoStep(BaseStep):
             self.context.response.answer = "Skipped: empty query"
             return self.context.response
 
+        job_tools = self.context.get("job_tools") or []
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["add"],
+            "job_tools": job_tools,
         }
         if structured_model is not None:
             wrapper_kwargs["output_schema"] = structured_model

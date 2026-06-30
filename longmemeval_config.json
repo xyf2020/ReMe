@@ -1,0 +1,7 @@
+{
+    "model":{
+        "memory base":"qwen-flash",
+        "generate answer":"qwen3-max",
+        "llm-as-judge":"qwen3-max"
+    }
+}
