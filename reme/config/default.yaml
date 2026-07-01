@@ -567,6 +567,10 @@ jobs:
         metadata:
           type: object
           description: "Optional extra frontmatter fields."
+        date:
+          type: string
+          description: "Override date in YYYY-MM-DD format (optional, defaults to today)"
+          default: ""
       required:
         - name
         - description
@@ -682,7 +686,7 @@ components:
     default:
       backend: local
       store_name: local
-      #  embedding_store: default
-      embedding_store: ""
+      embedding_store: default
+      #  embedding_store: ""
       keyword_index: default
       file_graph: default

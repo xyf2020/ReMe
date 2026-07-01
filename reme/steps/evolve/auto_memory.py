@@ -202,7 +202,12 @@ class AutoMemoryStep(BaseStep):
         session_id: str = self.context.get("session_id", "")
         memory_hint: str = self.context.get("memory_hint", "")
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
-        current = now(tz)
+        explicit_date = str(self.context.get("date", "") or "").strip()
+        if explicit_date:
+            import datetime as _dt
+            current = _dt.datetime.strptime(explicit_date, "%Y-%m-%d")
+        else:
+            current = now(tz)
 
         messages: list[Msg] = [self._to_msg(item) for item in raw_messages]
         self.logger.info(

@@ -1,0 +1,80 @@
+{
+  "metrics": {
+    "em": 0.0,
+    "f1": 0.4444444444444445,
+    "count": 1
+  },
+  "results": [
+    {
+      "em": false,
+      "f1": 0.4444444444444445,
+      "question_id": "e47becba",
+      "question": "What degree did I graduate with?",
+      "ground_truth": "Business Administration",
+      "prediction": "You graduated with a degree in Business Administration.",
+      "search_hits": 10,
+      "limit_results": {
+        "1": {
+          "em": true,
+          "f1": 1.0,
+          "llm_judge_binary": {
+            "correct": true,
+            "reasoning": "CORRECT  \nReasoning: The predicted answer exactly matches the ground truth, \"Business Administration,\" and contains the key information without any contradictions or significant wording differences."
+          },
+          "llm_judge_score": {
+            "score": 5,
+            "reasoning": "Score: 5  \nReasoning: The predicted answer exactly matches the ground truth, correctly stating \"Business Administration\" as the degree."
+          },
+          "search_limit": 1,
+          "search_hits": 1,
+          "prediction": "Business Administration"
+        },
+        "3": {
+          "em": true,
+          "f1": 1.0,
+          "llm_judge_binary": {
+            "correct": true,
+            "reasoning": "CORRECT  \nReasoning: The predicted answer exactly matches the ground truth \"Business Administration,\" containing the same key information with no contradictions or discrepancies."
+          },
+          "llm_judge_score": {
+            "score": 5,
+            "reasoning": "Score: 5  \nReasoning: The predicted answer exactly matches the ground truth, correctly stating \"Business Administration\" as the degree."
+          },
+          "search_limit": 3,
+          "search_hits": 3,
+          "prediction": "Business Administration"
+        },
+        "5": {
+          "em": true,
+          "f1": 1.0,
+          "llm_judge_binary": {
+            "correct": true,
+            "reasoning": "CORRECT  \nReasoning: The predicted answer exactly matches the ground truth (\"Business Administration\"), containing the same key information with no contradictions or discrepancies."
+          },
+          "llm_judge_score": {
+            "score": 5,
+            "reasoning": "Score: 5  \nReasoning: The predicted answer exactly matches the ground truth, correctly stating \"Business Administration\" as the degree."
+          },
+          "search_limit": 5,
+          "search_hits": 5,
+          "prediction": "Business Administration"
+        },
+        "10": {
+          "em": false,
+          "f1": 0.4444444444444445,
+          "llm_judge_binary": {
+            "correct": true,
+            "reasoning": "CORRECT  \nReasoning: The predicted answer accurately states that the degree is in Business Administration, which matches the ground truth. Minor wording differences (e.g., \"a degree in\" vs. just \"Business Administration\") are acceptable and do not alter the meaning."
+          },
+          "llm_judge_score": {
+            "score": 5,
+            "reasoning": "Score: 5  \nReasoning: The predicted answer exactly matches the ground truth by correctly stating that the degree is in Business Administration, with no omissions or inaccuracies."
+          },
+          "search_limit": 10,
+          "search_hits": 10,
+          "prediction": "You graduated with a degree in Business Administration."
+        }
+      }
+    }
+  ]
+}

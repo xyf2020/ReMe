@@ -1,20 +1,26 @@
 """Dream catalog persistence step."""
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ...base_step import BaseStep
 from ....components import R
-from ....schema import DreamState, FileNode
+from ....enumeration import ComponentEnum
+from ....schema import DreamState, FileChunk, FileNode
 from .utils import state_from_context, store_state, workspace_dir
+
+if TYPE_CHECKING:
+    from ....components.file_chunker import BaseFileChunker
 
 
 @R.register("dream_finish_step")
 class DreamFinishStep(BaseStep):
     """Persist dream catalog and render final auto-dream response."""
 
-    def __init__(self, persist: bool = True, **kwargs):
+    def __init__(self, persist: bool = True, index_file_store: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.persist = persist
+        self.index_file_store = index_file_store
 
     async def execute(self):
         assert self.context is not None
@@ -44,6 +50,21 @@ class DreamFinishStep(BaseStep):
             await self.file_catalog.dump()
             self.logger.info(f"[{self.name}] catalog dump done")
 
+        # Incremental indexing: upsert newly created/updated digest nodes to file_store
+        # This ensures the next dream's NodeSearch can find them without a full reindex.
+        if self.index_file_store and self.file_store is not None:
+            digest_paths = list(state.nodes_created or []) + list(state.nodes_updated or [])
+            if digest_paths:
+                self.logger.info(
+                    f"[{self.name}] incremental index start digest_paths={len(digest_paths)}"
+                )
+                indexed = await self._index_digest_files(workspace, digest_paths)
+                if indexed:
+                    await self.file_store.dump()
+                    self.logger.info(
+                        f"[{self.name}] incremental index done indexed={indexed}"
+                    )
+
         state.checkpoint_paths = [n.path for n in upserts if n.path in checkpoint]
         state.summary = render_summary(state)
         store_state(self, state)
@@ -65,6 +86,43 @@ class DreamFinishStep(BaseStep):
             except OSError:
                 continue
         return out
+
+    async def _index_digest_files(self, workspace: Path, rel_paths: list[str]) -> int:
+        """Chunk and upsert digest files into file_store incrementally."""
+        if self.app_context is None:
+            self.logger.warning(f"[{self.name}] incremental index skipped: app_context is None")
+            return 0
+
+        items: list[tuple[FileNode, list[FileChunk]]] = []
+        for rel in rel_paths:
+            abs_path = workspace / rel
+            if not abs_path.is_file():
+                self.logger.warning(f"[{self.name}] incremental index: file not found {rel}")
+                continue
+            try:
+                chunker = self._resolve_chunker(abs_path)
+                node, chunks = await chunker.chunk(abs_path)
+                items.append((node, chunks))
+            except Exception as e:  # noqa: BLE001
+                self.logger.warning(f"[{self.name}] incremental index: failed to chunk {rel}: {e}")
+                continue
+
+        if items:
+            await self.file_store.upsert(items)
+        return len(items)
+
+    def _resolve_chunker(self, path: Path) -> "BaseFileChunker":
+        """Resolve a file chunker for a given path."""
+        from ....components.file_chunker import BaseFileChunker
+
+        chunkers: dict[str, BaseFileChunker] = self.app_context.components[ComponentEnum.FILE_CHUNKER]
+        suffix = path.suffix.lstrip(".").lower()
+        for candidate in chunkers.values():
+            if suffix and suffix in {ext.lower().lstrip(".") for ext in candidate.supported_extensions}:
+                return candidate
+        if default := chunkers.get("default"):
+            return default
+        raise RuntimeError(f"No file chunker supports {path} (suffix={suffix!r}) and no default chunker is configured")
 
 
 def render_summary(state: DreamState) -> str:

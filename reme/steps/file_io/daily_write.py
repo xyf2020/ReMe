@@ -71,7 +71,12 @@ class DailyWriteStep(BaseStep):
 
         name, description, session_id, content = collected
         tz = self.app_context.app_config.timezone if self.app_context is not None else None
-        day = now(tz).strftime("%Y-%m-%d")
+        explicit_date = str(self.context.get("date", "") or "").strip()
+        if explicit_date:
+            import datetime as _dt
+            day = _dt.datetime.strptime(explicit_date, "%Y-%m-%d").strftime("%Y-%m-%d")
+        else:
+            day = now(tz).strftime("%Y-%m-%d")
         daily_dir = self.config_value("daily_dir")
         path = f"{daily_dir}/{day}/{name}.md"
         source_conversation = self._session_link(session_id)

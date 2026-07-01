@@ -48,6 +48,7 @@ datasets/
 # ReMe runtime data
 .reme/
 vault/
+memory_workspaces/
 *.db
 *.sqlite
 *.sqlite3
