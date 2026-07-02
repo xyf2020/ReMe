@@ -52,3 +52,12 @@ vault/
 # Documentation build outputs
 docs/_build/
 site/
+
+# LongMemEval evaluation outputs
+evaluation/longmemeval/logs/*
+!evaluation/longmemeval/logs/
+!evaluation/longmemeval/logs/.gitkeep
+evaluation/longmemeval/results/*
+!evaluation/longmemeval/results/
+!evaluation/longmemeval/results/.gitkeep
+evaluation/longmemeval/demo.py
