@@ -8,6 +8,9 @@ answered via search and judged by an LLM.
 Usage:
     python evaluation/longmemeval/run.py
     python evaluation/longmemeval/run.py --config evaluation/longmemeval/config.yaml
+    python evaluation/longmemeval/run.py -q                          # quiet: only eval-level logs
+    python evaluation/longmemeval/run.py --log-level WARNING         # reduce eval runner logs
+    python evaluation/longmemeval/run.py --reme-log-level WARNING    # reduce reme internal logs
 """
 
 import json
@@ -15,6 +18,8 @@ import logging
 import os
 import re
 import shutil
+import time
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -31,8 +36,56 @@ _WORKSPACE_ROOT = _PROJECT_ROOT / "memory_workspaces"
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+_DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(message)s"
+
+logging.basicConfig(level=logging.INFO, format=_DEFAULT_LOG_FORMAT)
 logger = logging.getLogger("longmemeval")
+
+# Noisy library loggers silenced by default
+_NOISY_LOGGERS = [
+    "httpx", "httpcore", "openai", "uvicorn", "multipart",
+    "asyncio", "watchfiles", "filelock",
+]
+
+
+def setup_logging(log_level: str, reme_log_level: str):
+    """Configure logging for the eval runner and reme internals.
+
+    Args:
+        log_level: Level for the eval runner logger (DEBUG/INFO/WARNING/ERROR).
+        reme_log_level: Level for reme's internal loguru logger.
+    """
+    numeric = getattr(logging, log_level.upper(), logging.INFO)
+    # Eval runner logger
+    logging.getLogger().setLevel(numeric)
+    logger.setLevel(numeric)
+
+    # Suppress noisy library loggers when above DEBUG
+    if numeric > logging.DEBUG:
+        for name in _NOISY_LOGGERS:
+            lib_logger = logging.getLogger(name)
+            lib_logger.setLevel(max(numeric, logging.WARNING))
+
+    # Reme internal logger (loguru) — will be applied per-worker via _configure_worker
+    os.environ["REME_LOG_LEVEL"] = reme_log_level.upper()
+
+
+def _configure_worker(log_level: str, reme_log_level: str):
+    """Set up logging inside a multiprocessing worker process.
+
+    Must be called at the top of each worker because child processes inherit
+    parent state but loguru sinks are NOT shared across fork/spawn.
+    """
+    numeric = getattr(logging, log_level.upper(), logging.INFO)
+    logging.basicConfig(level=numeric, format=_DEFAULT_LOG_FORMAT, force=True)
+    logging.getLogger("longmemeval").setLevel(numeric)
+    if numeric > logging.DEBUG:
+        for name in _NOISY_LOGGERS:
+            logging.getLogger(name).setLevel(max(numeric, logging.WARNING))
+
+    # Re-initialize loguru for reme internals at the desired level
+    from reme.utils import get_logger
+    get_logger(level=reme_log_level.upper(), force_init=True)
 
 
 # ---------------------------------------------------------------------------
@@ -121,52 +174,50 @@ def format_messages_for_reme(messages: list[dict], session_dt: datetime) -> list
 # ---------------------------------------------------------------------------
 # LLM-as-Judge
 # ---------------------------------------------------------------------------
+_JUDGE_PROMPTS_PATH = Path(__file__).parent.parent.parent / "datasets" / "longmemeval" / "llm-as-judge.json"
+
+
+def _load_judge_prompts() -> dict:
+    """Load per-question-type judge prompts from llm-as-judge.json."""
+    with open(_JUDGE_PROMPTS_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+_JUDGE_PROMPTS: dict = _load_judge_prompts()
+
+
+def get_judge_instruction(question_type: str) -> str:
+    """Return the judge instruction for the given question type, falling back to __default__."""
+    return _JUDGE_PROMPTS.get(question_type, _JUDGE_PROMPTS["__default__"])
+
+
 BINARY_JUDGE_PROMPT = """\
-You are an evaluation judge. Given a question, the ground-truth answer, \
-and a system's response, determine if the system's response correctly answers the question.
+{judge_instruction}
 
 Question: {question}
 Ground-truth answer: {answer}
 System response: {response}
 
-Does the system's response correctly answer the question? Consider semantic equivalence, not exact wording.
 Reply with ONLY a JSON object: {{"verdict": "yes" or "no", "reason": "brief explanation"}}"""
-
-SCORE_JUDGE_PROMPT = """\
-You are an evaluation judge. Given a question, the ground-truth answer, \
-and a system's response, rate the quality of the system's response on a scale of 0-5.
-
-Scoring rubric:
-- 0: Completely wrong or irrelevant
-- 1: Mostly wrong with minor relevant elements
-- 2: Partially correct but missing key information
-- 3: Mostly correct but with notable omissions or inaccuracies
-- 4: Correct with minor issues
-- 5: Perfectly correct and complete
-
-Question: {question}
-Ground-truth answer: {answer}
-System response: {response}
-
-Reply with ONLY a JSON object: {{"score": <0-5>, "reason": "brief explanation"}}"""
 
 
 async def judge_response(
     question: str,
     ground_truth: str,
     response: str,
-    metric: str,
+    question_type: str,
     judge_llm,
 ) -> dict:
     """Call LLM judge to evaluate a response using reme's as_llm component."""
     from agentscope.message import Msg
 
-    if metric == "binary":
-        prompt = BINARY_JUDGE_PROMPT.format(question=question, answer=ground_truth, response=response)
-    elif metric == "score":
-        prompt = SCORE_JUDGE_PROMPT.format(question=question, answer=ground_truth, response=response)
-    else:
-        raise ValueError(f"Unknown metric: {metric}")
+    judge_instruction = get_judge_instruction(question_type)
+    prompt = BINARY_JUDGE_PROMPT.format(
+        judge_instruction=judge_instruction,
+        question=question,
+        answer=ground_truth,
+        response=response,
+    )
 
     user_msg = Msg(name="user", role="user", content=[{"type": "text", "text": prompt}])
     chat_response = await judge_llm.model([user_msg])
@@ -187,7 +238,8 @@ async def judge_response(
     except json.JSONDecodeError:
         result = {"raw": raw_text, "error": "failed to parse judge response"}
 
-    result["metric"] = metric
+    result["metric"] = "binary"
+    result["question_type"] = question_type
     return result
 
 
@@ -340,18 +392,15 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
 
         # ── Phase 5: Judge (using reme's as_llm component) ────────────
         judge_llm = app.context.components[ComponentEnum.AS_LLM]["judge"]
-        judgments = {}
-        for metric in eval_config["evaluation"].get("metrics", ["binary", "score"]):
-            logger.info(f"[Item {item_index}] Judging with metric={metric}...")
-            judgment = await judge_response(
-                question=question,
-                ground_truth=item["answer"],
-                response=system_response,
-                metric=metric,
-                judge_llm=judge_llm,
-            )
-            judgments[metric] = judgment
-            logger.info(f"[Item {item_index}] {metric} result: {judgment}")
+        logger.info(f"[Item {item_index}] Judging (binary, type={item['question_type']})...")
+        judgment = await judge_response(
+            question=question,
+            ground_truth=item["answer"],
+            response=system_response,
+            question_type=item["question_type"],
+            judge_llm=judge_llm,
+        )
+        logger.info(f"[Item {item_index}] binary result: {judgment}")
 
     finally:
         await app.close()
@@ -362,7 +411,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
         "question": question,
         "ground_truth": item["answer"],
         "system_response": system_response,
-        "judgments": judgments,
+        "judgment": judgment,
         "sessions_ingested": len(sorted_sessions),
         "dreams_triggered": len(dream_dates_triggered),
     }
@@ -373,10 +422,24 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int) -> dict:
 # ---------------------------------------------------------------------------
 def _evaluate_item_worker(task_input: tuple) -> dict:
     """Worker function for multiprocessing. Each process gets its own event loop."""
-    item, eval_config, item_index = task_input
+    item, eval_config, item_index, log_level, reme_log_level = task_input
     import asyncio  # pylint: disable=import-outside-toplevel
 
+    _configure_worker(log_level, reme_log_level)
+
+    # Permanently suppress "Task exception was never retrieved" /
+    # "Event loop is closed" noise from httpx AsyncClient GC cleanup.
+    # These fire AFTER asyncio.run() closes the loop, during Python's
+    # garbage collection of httpx connection-pool tasks — harmless.
+    logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+
     return asyncio.run(evaluate_item(item, eval_config, item_index))
+
+
+def _indexed_worker(indexed_input: tuple) -> tuple:
+    """Module-level wrapper for imap_unordered with index tracking."""
+    idx, task_input = indexed_input
+    return idx, _evaluate_item_worker(task_input)
 
 
 def _resolve_num_workers(configured: int) -> int:
@@ -389,10 +452,11 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(config_path: str | None = None):
+def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level: str = "INFO"):
     """Run the LongMemEval evaluation pipeline."""
     from multiprocessing import Pool  # pylint: disable=import-outside-toplevel
 
+    setup_logging(log_level, reme_log_level)
     eval_config = load_eval_config(config_path)
     dataset_cfg = eval_config["dataset"]
 
@@ -425,8 +489,42 @@ def main(config_path: str | None = None):
     output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build task args
-    task_args = [(item, eval_config, start + i) for i, item in enumerate(items_to_eval)]
+    # Build task args — include log levels so workers can configure themselves
+    task_args = [(item, eval_config, start + i, log_level, reme_log_level) for i, item in enumerate(items_to_eval)]
+
+    # Progress tracking (force print regardless of log level, every 10 minutes)
+    total_items = len(task_args)
+    completed_count = [0]  # use list for mutability in closure
+    start_time = time.time()
+    progress_lock = threading.Lock()
+
+    def _print_progress(prefix: str = "PROGRESS"):
+        elapsed = time.time() - start_time
+        elapsed_min = elapsed / 60
+        done = completed_count[0]
+        pct = 100.0 * done / total_items if total_items else 0
+        eta_str = "N/A"
+        if done > 0:
+            eta_sec = elapsed / done * (total_items - done)
+            eta_str = f"{eta_sec/60:.1f}min"
+        print(
+            f"[{prefix}] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
+            f"{done}/{total_items} ({pct:.1f}%) completed | "
+            f"elapsed={elapsed_min:.1f}min | ETA={eta_str}",
+            flush=True,
+        )
+
+    def _progress_timer():
+        """Background thread: print progress every 10 minutes."""
+        while not _timer_stop.is_set():
+            _timer_stop.wait(600)  # 10 minutes
+            if not _timer_stop.is_set():
+                with progress_lock:
+                    _print_progress()
+
+    _timer_stop = threading.Event()
+    timer_thread = threading.Thread(target=_progress_timer, daemon=True)
+    timer_thread.start()
 
     # Run evaluation
     if num_workers == 1:
@@ -435,10 +533,22 @@ def main(config_path: str | None = None):
         for task_input in task_args:
             result = _evaluate_item_worker(task_input)
             results.append(result)
+            with progress_lock:
+                completed_count[0] += 1
     else:
-        # Parallel mode
+        # Parallel mode — use imap_unordered for progress tracking
+        results = [None] * total_items
+        indexed_args = list(enumerate(task_args))
+
         with Pool(processes=num_workers) as pool:
-            results = pool.map(_evaluate_item_worker, task_args)
+            for idx, result in pool.imap_unordered(_indexed_worker, indexed_args):
+                results[idx] = result
+                with progress_lock:
+                    completed_count[0] += 1
+
+    # Stop progress timer
+    _timer_stop.set()
+    timer_thread.join(timeout=2)
 
     # Save results
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -447,31 +557,41 @@ def main(config_path: str | None = None):
         json.dump(results, f, ensure_ascii=False, indent=2)
     logger.info(f"Results saved to {output_file}")
 
-    # Print concise summary: per-item scores + aggregate stats
+    # Final progress
+    _print_progress("FINAL")
+
+    # Print concise summary: per-item binary results + aggregate stats
     print("\n" + "=" * 60)
     print("EVALUATION RESULTS")
     print("=" * 60)
 
-    scores = []
     binary_correct = 0
+    type_stats = {}  # {question_type: {correct: int, total: int}}
     for r in results:
-        score = r.get("judgments", {}).get("score", {}).get("score", "N/A")
-        binary = r.get("judgments", {}).get("binary", {}).get("verdict", "N/A")
-        print(f"  [{r['question_id']}] type={r['question_type']}  binary={binary}  score={score}/5")
-        if isinstance(score, (int, float)):
-            scores.append(score)
-        if binary == "yes":
+        qtype = r["question_type"]
+        verdict = r.get("judgment", {}).get("verdict", "N/A")
+        print(f"  [{r['question_id']}] type={qtype}  verdict={verdict}")
+        if qtype not in type_stats:
+            type_stats[qtype] = {"correct": 0, "total": 0}
+        type_stats[qtype]["total"] += 1
+        if verdict == "yes":
             binary_correct += 1
+            type_stats[qtype]["correct"] += 1
 
     print("\n" + "-" * 60)
     total = len(results)
-    if scores:
-        avg_score = sum(scores) / len(scores)
-        print(f"  Items: {total}")
-        print(f"  Binary accuracy: {binary_correct}/{total} ({100*binary_correct/total:.1f}%)")
-        print(f"  Avg score: {avg_score:.2f}/5")
-    else:
-        print(f"  Items: {total} (no valid scores)")
+    print(f"  Items: {total}")
+    print(f"  Overall accuracy: {binary_correct}/{total} ({100*binary_correct/total:.1f}%)")
+    print()
+    print("  Per-type accuracy:")
+    for qtype, stats in sorted(type_stats.items()):
+        acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
+        print(f"    {qtype}: {stats['correct']}/{stats['total']} ({acc:.1f}%)")
+    print("=" * 60)
+    total_elapsed = time.time() - start_time
+    print(f"\n  Total time: {total_elapsed/60:.1f} min")
+    print("\n" + "=" * 60)
+    print("  [DONE] EVALUATION COMPLETED SUCCESSFULLY")
     print("=" * 60 + "\n")
 
 
@@ -480,5 +600,29 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="LongMemEval evaluation runner")
     parser.add_argument("--config", type=str, default=None, help="Path to config.yaml")
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level for the eval runner (default: INFO)",
+    )
+    parser.add_argument(
+        "--reme-log-level",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log level for reme internal logs — loguru (default: INFO)",
+    )
+    parser.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        help="Shortcut for --log-level WARNING --reme-log-level WARNING",
+    )
     args = parser.parse_args()
-    main(args.config)
+
+    if args.quiet:
+        args.log_level = "WARNING"
+        args.reme_log_level = "WARNING"
+
+    main(args.config, args.log_level, args.reme_log_level)
