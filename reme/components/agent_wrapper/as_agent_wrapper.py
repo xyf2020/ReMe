@@ -214,10 +214,15 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
+        local_jobs: dict[str, "BaseJob"] = kwargs.get("local_jobs", {})
         resolved_jobs = self._resolve_job_tools(job_tools)
+        # local_jobs override global jobs with the same name.
+        job_map = {job.name: job for job in resolved_jobs}
+        job_map.update(local_jobs)
+        final_jobs = list(job_map.values())
         skills = self._resolve_skills(kwargs.get("skills"))
         toolkit = kwargs.get("toolkit") or Toolkit(
-            tools=[*self._builtin_tools(), *(self._make_tool(job) for job in resolved_jobs)],
+            tools=[*self._builtin_tools(), *(self._make_tool(job) for job in final_jobs)],
             skills_or_loaders=skills,
         )
 

@@ -282,13 +282,18 @@ class CcAgentWrapper(BaseAgentWrapper):
         opts.session_store = opts.session_store or CcFileSessionStore(self.session_path / "claude_code")
 
         job_tools: list[str] = kwargs.get("job_tools", [])
+        local_jobs: dict[str, "BaseJob"] = kwargs.get("local_jobs", {})
         resolved_jobs = self._resolve_job_tools(job_tools)
-        if resolved_jobs:
-            sdk_tools = [self._make_tool(job) for job in resolved_jobs]
+        # local_jobs override global jobs with the same name.
+        job_map = {job.name: job for job in resolved_jobs}
+        job_map.update(local_jobs)
+        final_jobs = list(job_map.values())
+        if final_jobs:
+            sdk_tools = [self._make_tool(job) for job in final_jobs]
             server = create_sdk_mcp_server(name="mcp_server", tools=sdk_tools)
             opts.mcp_servers = opts.mcp_servers if isinstance(opts.mcp_servers, dict) else {}
             opts.mcp_servers["mcp_server"] = server
-            opts.allowed_tools.extend(job.name for job in resolved_jobs)
+            opts.allowed_tools.extend(job.name for job in final_jobs)
 
         if output_schema := kwargs.get("output_schema"):
             opts.output_format = {"type": "json_schema", "schema": output_schema}

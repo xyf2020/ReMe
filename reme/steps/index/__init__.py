@@ -1,6 +1,7 @@
 """Index steps."""
 
 from .clear_store import ClearStoreStep
+from .dedup_search import DedupSearchStep
 from .log_changes import LogChangesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
@@ -20,6 +21,7 @@ __all__ = [
     "DEFAULT_LOW_POWER_POLL_MS",
     "DEFAULT_WATCH_DEBOUNCE_MS",
     "DEFAULT_WATCH_STEP_MS",
+    "DedupSearchStep",
     "InitChangesStep",
     "LogChangesStep",
     "NodeSearchStep",

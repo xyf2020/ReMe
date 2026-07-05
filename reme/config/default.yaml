@@ -297,6 +297,44 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
+  bench_query_job:
+    backend: base
+    description: "Benchmark query job"
+    watch_dirs: []
+    watch_suffixes: []
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "The query to ask"
+        query_time:
+          type: string
+          description: "ISO timestamp representing the query time"
+          default: ""
+      required:
+        - query
+    steps:
+      - backend: agentic_answer_step
+
+  dedup_bench_query_job:
+    backend: base
+    description: "Benchmark query with dedup search — avoids returning duplicate chunks across agent tool calls."
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "The query to ask"
+        query_time:
+          type: string
+          description: "ISO timestamp representing the query time"
+          default: ""
+      required:
+        - query
+    steps:
+      - backend: dedup_agentic_answer_step
+
   node_search:
     backend: base
     description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."
