@@ -12,7 +12,6 @@ import pytest
 
 from reme.components.file_chunker import JsonFileChunker
 
-
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
 # ---------------------------------------------------------------------------
