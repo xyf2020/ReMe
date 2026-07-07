@@ -54,12 +54,6 @@ class JsonlFileChunker(BaseFileChunker):
             return len(line.encode(self.encoding))
         return len(line)
 
-    def _text_size(self, text: str) -> int:
-        """Return the size of arbitrary text."""
-        if self.mode == "bytes":
-            return len(text.encode(self.encoding))
-        return len(text)
-
     # ------------------------------------------------------------------
     # Core algorithm
     # ------------------------------------------------------------------
