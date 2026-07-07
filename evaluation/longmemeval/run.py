@@ -210,7 +210,9 @@ PROMPTED_SYSTEM_PROMPT = (
     "then output ONLY the direct factual answer.\n\n"
     "## Rules\n"
     "- Answer based ONLY on the retrieved context provided below.\n"
-    "- Then provide a very CONCISE answer (short phrase about core information)."
+    "- Output ONLY the direct factual answer — no reasoning in the final output, "
+    "no elaboration, no mention of the retrieval process.\n"
+    # "- If the information is not found in the context, reply: 'Information not found.'"
 )
 
 PROMPTED_TEMPORAL_HINT = "\n\nCurrent time context: {query_time}\n"

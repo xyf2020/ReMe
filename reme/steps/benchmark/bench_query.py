@@ -22,7 +22,7 @@ class BenchQueryStep(BaseStep):
         The agent's final answer text.
     """
 
-    MAX_ITERATION = 5
+    MAX_ITERATION = 6
 
     DEFAULT_SYS_PROMPT = (
         "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n\n"
@@ -31,7 +31,7 @@ class BenchQueryStep(BaseStep):
         "## Answer Rules\n"
         "- Answer based ONLY on retrieved context.\n"
         "- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n"
-        "- If information is insufficient after multiple searches, reply: 'Information not found.'"
+        # "- If information is not founded after multiple searches, reply: 'Information not found.'"
     )
 
     TEMPORAL_HINT = "\nCurrent time context: {query_time}\n"

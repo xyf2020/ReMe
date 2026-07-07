@@ -47,7 +47,7 @@
 
 4. golden session + time filter. 和上面一个实验的区别是，输入的golden被过滤了一次，要求输入session的时间戳必须早于question的时间才行。
 
-一共被过滤掉了75个session，44个question受到了影响。temperal reasoning类型受影响最大。
+一共被过滤掉了75个session，44个question受到了影响。temperal reasoning类型受影响最大。有20个case不包含任何一个groundtruth session。 根据golden session回答正确并且golden session非空，一共有424个case。
 
 | Category | Total | Correct | Wrong | Accuracy |
 |---|---|---|---|---|
@@ -58,3 +58,23 @@
 | temporal-reasoning | 133 | 91 | 42 | 68.4% |
 | single-session-preference | 30 | 16 | 14 | 53.3% |
 | **Overall** | **500** | **426** | **74** | **85.2%** |
+
+5. 关闭auto-memory机制，根据原始query一次性混合检索召回原始session，计算recall.
+
+| Category | Total  | yes-judge | recall@5 / yes | recall@10 / yes |
+|---|---|---|---|---|
+| knowledge-update | 78 | 75 | 99.3% | 100% |
+| single-session-user | 70 | 67 | 100% | 100% |
+| multi-session | 133 | 122 | 91.8% | 95.8% |
+| single-session-assistant | 56 | 55 | 100% | 100% |
+| temporal-reasoning | 133 | 91 | 87.6% | 94.2% |
+| single-session-preference | 30 | 16 | 100% | 100% |
+| **Overall** | **500** | **426** | **87.6%** | **94.2%** |
+
+
+## analysis
+
+1. 数据集5%存在时序问题，目前上限准确率85.2%
+2. agentic效果低于prompt-based，需要调整agentic策略or system prompt
+3. 对整体提升最大的是multi-sesssion reasonin。
+4. 混合检索原始session效果就不差，但还差最终score 
