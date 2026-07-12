@@ -3,10 +3,11 @@
 import asyncio
 
 from reme.components.file_store import BaseFileStore
+from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode
-from reme.steps.index import SearchStep
+from reme.steps.index import AddDraftStep, ReadAllDraftStep, SearchStep
 
 
 class FakeSearchStore(BaseFileStore):
@@ -109,6 +110,26 @@ def test_search_step_rrf_merges_vector_and_keyword_by_chunk_id():
     asyncio.run(run())
 
 
+def test_draft_steps_accumulate_by_tool_context_id():
+    """Drafts are stored in app metadata and isolated by injected tool_context_id."""
+
+    async def run():
+        app_context = ApplicationContext()
+        add = AddDraftStep(app_context=app_context)
+        read = ReadAllDraftStep(app_context=app_context)
+
+        await add(RuntimeContext(text="first", tool_context_id="ctx-1"))
+        await add(RuntimeContext(text="second", tool_context_id="ctx-1"))
+        await add(RuntimeContext(text="other", tool_context_id="ctx-2"))
+
+        resp = await read(RuntimeContext(tool_context_id="ctx-1"))
+
+        assert resp.answer == "first\nsecond"
+        assert resp.metadata["draft_count"] == 2
+
+    asyncio.run(run())
+
+
 def test_search_step_keyword_only_uses_keyword_scores_and_min_score():
     """When vector has no hits, SearchStep returns keyword results directly and applies min_score."""
 
@@ -126,6 +147,89 @@ def test_search_step_keyword_only_uses_keyword_scores_and_min_score():
         assert "keyword=4.0000" not in resp.answer
         assert "score=4.0000" in resp.answer
         assert "daily/low.md" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_search_step_tool_context_deduplicates_returned_chunks_only():
+    """When tool_context_id is supplied, repeated searches skip previously returned chunks."""
+
+    async def run():
+        chunks = [
+            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+            _chunk("c", "daily/c.md", "third", "keyword", 3.0),
+        ]
+        store = FakeSearchStore(keyword_results=chunks)
+        step = SearchStep(file_store=store, expand_links=False)
+
+        first = await step(RuntimeContext(query="alpha", limit=2, tool_context_id="ctx-1"))
+        second = await step(RuntimeContext(query="alpha", limit=2, tool_context_id="ctx-1"))
+        third = await step(RuntimeContext(query="alpha", limit=2))
+
+        assert [r["id"] for r in first.metadata["results"]] == ["a", "b"]
+        assert first.metadata["dedup"] == {
+            "tool_context_id": "ctx-1",
+            "seen_before": 0,
+            "skipped_seen": 0,
+            "seen_after": 2,
+            "expired": 0,
+            "ttl_seconds": 86400.0,
+        }
+        assert [r["id"] for r in second.metadata["results"]] == ["c"]
+        assert second.metadata["dedup"]["seen_before"] == 2
+        assert second.metadata["dedup"]["skipped_seen"] == 2
+        assert second.metadata["dedup"]["seen_after"] == 3
+        assert [r["id"] for r in third.metadata["results"]] == ["a", "b"]
+        assert "dedup" not in third.metadata
+
+    asyncio.run(run())
+
+
+def test_search_step_passes_metadata_filter_to_store():
+    """Search filters can target chunk metadata such as conversation_date."""
+
+    async def run():
+        hit = _chunk("hit", "daily/2023-01-19/event.md", "historical hit", "keyword", 3.0)
+        store = FakeSearchStore(keyword_results=[hit])
+        step = SearchStep(file_store=store, expand_links=False)
+        search_filter = {"metadata": {"conversation_date": "2023-01-19"}}
+
+        resp = await step(RuntimeContext(query="Jon job", limit=5, search_filter=search_filter))
+
+        assert resp.success is True
+        assert resp.metadata["results"][0]["id"] == "hit"
+        assert all(call[3] == search_filter for call in store.calls)
+
+    asyncio.run(run())
+
+
+def test_search_step_tool_context_seen_chunks_expire_after_ttl():
+    """Seen chunk ids under a tool_context_id are reusable after the configured TTL."""
+
+    async def run():
+        now = 1000.0
+        chunks = [
+            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+        ]
+        store = FakeSearchStore(keyword_results=chunks)
+        step = SearchStep(
+            file_store=store,
+            expand_links=False,
+            seen_ttl_hours=1,
+            clock=lambda: now,
+        )
+
+        first = await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+        now = 4601.0
+        second = await step(RuntimeContext(query="alpha", limit=1, tool_context_id="ctx-1"))
+
+        assert [r["id"] for r in first.metadata["results"]] == ["a"]
+        assert [r["id"] for r in second.metadata["results"]] == ["a"]
+        assert second.metadata["dedup"]["expired"] == 1
+        assert second.metadata["dedup"]["seen_before"] == 0
+        assert second.metadata["dedup"]["ttl_seconds"] == 3600.0
 
     asyncio.run(run())
 
