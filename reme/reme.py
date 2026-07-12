@@ -5,11 +5,12 @@ import sys
 
 from .application import Application
 from .components import R
+from .components.service.cli_service import prepare_start_config, should_precheck_start
 from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
 from .utils import cli_find_reme, load_env, precheck_start, running_service_config
 
-_CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args"}
+_CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "show_metadata"}
 
 
 class ReMe(Application):
@@ -63,8 +64,8 @@ def main():
     action, kwargs = parse_args(*sys.argv[1:])
     if action == "start":
         load_env()
-        kwargs = resolve_app_config(**kwargs)
-        if not precheck_start(kwargs.get("service")):
+        kwargs = prepare_start_config(kwargs)
+        if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
             return
         ReMe(**kwargs).run_app()
     elif action == "find_reme":
