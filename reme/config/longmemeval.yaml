@@ -25,6 +25,37 @@ jobs:
         - query
     steps:
       - backend: bench_query_step
+        agent_wrapper: bench
+
+  # ── LLM-as-Judge for evaluating answers ──
+  answer_judge:
+    backend: base
+    description: "LLM-as-Judge: evaluate agent answer against golden answer"
+    watch_dirs: []
+    watch_suffixes: []
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "The question being asked"
+        agent_answer:
+          type: string
+          description: "The model's answer to evaluate"
+        golden_answer:
+          type: string
+          description: "The correct/golden answer"
+        question_type:
+          type: string
+          description: "The question type for prompt selection"
+          default: ""
+      required:
+        - query
+        - agent_answer
+        - golden_answer
+    steps:
+      - backend: answer_judge_step
+        agent_wrapper: judge
 
   # ── Manual index update (replaces index_update_loop background) ──
   index_update:
@@ -148,31 +179,76 @@ jobs:
         dispatch_steps: [update_index_step]
 
   # ── Search ──
+  #   start_date:
+        #   type: string
+        #   description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        # end_date:
+        #   type: string
+        #   description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+      
   search:
     backend: base
-    description: "Hybrid workspace search (vector + BM25, RRF-fused)."
+    description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
     parameters:
       type: object
       properties:
         query:
           type: string
           description: "search query"
-        limit:
-          type: integer
-          description: "max results"
-          default: 5
-        min_score:
-          type: number
-          description: "min fused score"
-          default: 0.0
+        start_date:
+          type: string
+          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+        end_date:
+          type: string
+          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
       required:
         - query
     steps:
       - backend: search_step
         vector_weight: 0.7
-        candidate_multiplier: 3.0
+        candidate_multiplier: 5.0
         expand_links: true
         max_links_per_direction: 10
+
+  add_draft:
+    backend: base
+    description: "Append text to the current draft list."
+    parameters:
+      type: object
+      properties:
+        text:
+          type: string
+          description: "draft text to append"
+      required:
+        - text
+    steps:
+      - backend: add_draft_step
+
+  read_all_draft:
+    backend: base
+    description: "Read all draft text previously appended in the current tool context."
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: read_all_draft_step
+
+  python_execute:
+    backend: base
+    description: "Execute Python code and return printed stdout."
+    parameters:
+      type: object
+      properties:
+        code:
+          type: string
+          description: "Python code to execute. Print the final result to stdout."
+        timeout:
+          type: number
+          description: "Execution timeout in seconds; defaults to 60."
+      required:
+        - code
+    steps:
+      - backend: python_execute_step
 
   # ── File I/O jobs (needed by auto_memory agent tools) ──
   daily_list:
@@ -377,8 +453,7 @@ components:
       credential:
         api_key: ${EMBEDDING_API_KEY:-}
         base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      parameters:
-        dimensions: 1024
+      dimensions: 1024
 
   embedding_store:
     default:
@@ -414,19 +489,55 @@ components:
       backend: ${LLM_BACKEND:-openai}
       model: ${PROMPTED_MODEL_NAME:-qwen3.7-max}
       stream: false
-      context_size: 64000
+      context_size: 400000
       max_retries: 3
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}
       parameters:
-        max_tokens: 8192
+        max_tokens: 65536
+        thinking_enable: true
+    bench:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${BENCH_MODEL_NAME:-qwen3.7-max}
+      stream: true
+      context_size: 400000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
         thinking_enable: true
 
   agent_wrapper:
     default:
       backend: agentscope
       as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+    judge:
+      backend: agentscope
+      as_llm: judge
+      permission_mode: bypass
+      react_config:
+        max_iters: 1
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+    bench:
+      backend: agentscope
+      as_llm: bench
       permission_mode: bypass
       react_config:
         max_iters: 30

@@ -1,8 +1,27 @@
 """Benchmark query step – ReAct agent that answers questions using the search tool."""
 
+import os
+import threading
+
 from ..base_step import BaseStep
 from ...components import R
 from ...enumeration import ChunkEnum
+
+# ---------------------------------------------------------------------------
+# Process-safe & thread-safe counter for unique tool_context_id.
+# PID guarantees cross-process uniqueness (multiprocessing Pool);
+# threading.Lock + monotonic counter guarantees thread safety within a process.
+# ---------------------------------------------------------------------------
+_TOOL_CTX_LOCK = threading.Lock()
+_TOOL_CTX_SEQ = 0
+
+
+def _next_tool_context_id() -> str:
+    global _TOOL_CTX_SEQ
+    with _TOOL_CTX_LOCK:
+        _TOOL_CTX_SEQ += 1
+        seq = _TOOL_CTX_SEQ
+    return f"bench_query_{os.getpid()}_{seq}"
 
 
 @R.register("bench_query_step")
@@ -22,16 +41,19 @@ class BenchQueryStep(BaseStep):
         The agent's final answer text.
     """
 
-    MAX_ITERATION = 6
+    MAX_ITERATION = 10
 
     DEFAULT_SYS_PROMPT = (
-        "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n\n"
+        "You are a memory retrieval assistant. You MUST use the search tool to find information before answering.\n"
+        "- Your total time of tool calls should be at most 9 times\n\n"
         "## Search Strategy\n"
-        "- You can call 'search' tool to search multiple times (at most 5 times, at least once) with different queries to gather comprehensive information.\n"
+        "- You can call 'search' tool to search multiple times (at least once) with different queries to gather comprehensive information.\n"
+        "## Draft Tool\n"
+        "- Use 'add_draft' to save key findings during search, and 'read_all_draft' to review all saved notes before answering.\n"
         "## Answer Rules\n"
         "- Answer based ONLY on retrieved context.\n"
         "- Output ONLY the direct factual answer — no reasoning, no search process, no elaboration.\n"
-        # "- If information is not founded after multiple searches, reply: 'Information not found.'"
+        "- If information is not founded or not sufficient after multiple searches, reply: 'Information not found.'"
     )
 
     TEMPORAL_HINT = "\nCurrent time context: {query_time}\n"
@@ -53,8 +75,9 @@ class BenchQueryStep(BaseStep):
 
         wrapper_kwargs = {
             "system_prompt": sys_prompt,
-            "job_tools": ["search"],
+            "job_tools": ["search", "add_draft", "read_all_draft"],
             "react_config": {"max_iters": self.MAX_ITERATION},
+            "tool_context_id": _next_tool_context_id(),
         }
 
         if self.context.stream:

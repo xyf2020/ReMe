@@ -173,33 +173,35 @@ def format_messages_for_reme(messages: list[dict], session_dt: datetime) -> list
 
 
 # ---------------------------------------------------------------------------
-# LLM-as-Judge
+# LLM-as-Judge (delegated to answer_judge_step via app.run_job)
 # ---------------------------------------------------------------------------
-_JUDGE_PROMPTS_PATH = Path(__file__).parent.parent.parent / "datasets" / "longmemeval" / "llm-as-judge.json"
 
 
-def _load_judge_prompts() -> dict:
-    """Load per-question-type judge prompts from llm-as-judge.json."""
-    with open(_JUDGE_PROMPTS_PATH, encoding="utf-8") as f:
-        return json.load(f)
+async def judge_response_via_job(
+    app,
+    question: str,
+    ground_truth: str,
+    response: str,
+    question_type: str,
+) -> dict:
+    """Use the answer_judge_step to evaluate a response against the golden answer."""
+    judge_resp = await app.run_job(
+        "answer_judge",
+        query=question,
+        agent_answer=response,
+        golden_answer=ground_truth,
+        question_type=question_type,
+    )
 
+    verdict = (judge_resp.answer or "").strip().lower()
+    raw_answer = (judge_resp.metadata or {}).get("raw_answer_judgement", "")
 
-_JUDGE_PROMPTS: dict = _load_judge_prompts()
-
-
-def get_judge_instruction(question_type: str) -> str:
-    """Return the judge instruction for the given question type, falling back to __default__."""
-    return _JUDGE_PROMPTS.get(question_type, _JUDGE_PROMPTS["__default__"])
-
-
-BINARY_JUDGE_PROMPT = """\
-{judge_instruction}
-
-Question: {question}
-Ground-truth answer: {answer}
-System response: {response}
-
-Reply with ONLY a JSON object: {{"verdict": "yes" or "no", "reason": "brief explanation"}}"""
+    return {
+        "verdict": verdict,
+        "reason": raw_answer if verdict not in ("yes", "no") else "",
+        "metric": "binary",
+        "question_type": question_type,
+    }
 
 # ---------------------------------------------------------------------------
 # Prompted-answer system prompt (non-agentic, direct LLM generation)
@@ -216,48 +218,6 @@ PROMPTED_SYSTEM_PROMPT = (
 )
 
 PROMPTED_TEMPORAL_HINT = "\n\nCurrent time context: {query_time}\n"
-
-
-async def judge_response(
-    question: str,
-    ground_truth: str,
-    response: str,
-    question_type: str,
-    judge_llm,
-) -> dict:
-    """Call LLM judge to evaluate a response using reme's as_llm component."""
-    from agentscope.message import Msg
-
-    judge_instruction = get_judge_instruction(question_type)
-    prompt = BINARY_JUDGE_PROMPT.format(
-        judge_instruction=judge_instruction,
-        question=question,
-        answer=ground_truth,
-        response=response,
-    )
-
-    user_msg = Msg(name="user", role="user", content=[{"type": "text", "text": prompt}])
-    chat_response = await judge_llm.model([user_msg])
-    # Extract text from response content blocks
-    raw_text = ""
-    for block in chat_response.content:
-        if hasattr(block, "text"):
-            raw_text += block.text
-    raw_text = raw_text.strip()
-
-    # Extract JSON from response
-    try:
-        json_match = re.search(r"\{[^}]+\}", raw_text)
-        if json_match:
-            result = json.loads(json_match.group())
-        else:
-            result = json.loads(raw_text)
-    except json.JSONDecodeError:
-        result = {"raw": raw_text, "error": "failed to parse judge response"}
-
-    result["metric"] = "binary"
-    result["question_type"] = question_type
-    return result
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +416,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         prompted_llm = app.context.components[ComponentEnum.AS_LLM]["prompted"]
 
         # Search for relevant chunks
-        search_resp = await app.run_job("search", query=question, limit=10)
+        search_resp = await app.run_job("search", query=question, limit=15)
         search_context = (search_resp.answer or "").strip()
         search_hit_count = (search_resp.metadata or {}).get("counts", {}).get("returned", 0)
         logger.info(f"[Item {item_index}] Prompted search: {search_hit_count} hit(s)")
@@ -507,28 +467,26 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
         logger.info(f"[Item {item_index}] Prompted response: {prompted_response[:200]}...")
 
-        # ── Phase 5: Judge both responses ────────────────────────────────
-        judge_llm = app.context.components[ComponentEnum.AS_LLM]["judge"]
-
+        # ── Phase 5: Judge both responses (via answer_judge_step) ──────────
         # Judge agentic response
         logger.info(f"[Item {item_index}] Judging agentic (binary, type={item['question_type']})...")
-        agentic_judgment = await judge_response(
+        agentic_judgment = await judge_response_via_job(
+            app=app,
             question=question,
             ground_truth=item["answer"],
             response=agentic_response,
             question_type=item["question_type"],
-            judge_llm=judge_llm,
         )
         logger.info(f"[Item {item_index}] agentic binary result: {agentic_judgment}")
 
         # Judge prompted response
         logger.info(f"[Item {item_index}] Judging prompted (binary, type={item['question_type']})...")
-        prompted_judgment = await judge_response(
+        prompted_judgment = await judge_response_via_job(
+            app=app,
             question=question,
             ground_truth=item["answer"],
             response=prompted_response,
             question_type=item["question_type"],
-            judge_llm=judge_llm,
         )
         logger.info(f"[Item {item_index}] prompted binary result: {prompted_judgment}")
 
@@ -610,18 +568,42 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
 
     start = dataset_cfg.get("start_index", 0)
     num_items = dataset_cfg.get("num_items", 1)
-    items_to_eval = data[start : start + num_items]
+    raw_items = data[start : start + num_items]
+
+    # Load confirmed cases if specified (overrides answers, filters items by question_id)
+    confirmed_cases_path = dataset_cfg.get("confirmed_cases")
+    if confirmed_cases_path:
+        cc_full_path = _PROJECT_ROOT / confirmed_cases_path
+        logger.info(f"Loading confirmed cases from {cc_full_path}")
+        with open(cc_full_path, encoding="utf-8") as f:
+            cc_data = json.load(f)
+        cc_map = {item["question_id"]: item for item in cc_data}
+        logger.info(f"Loaded {len(cc_map)} confirmed cases")
+
+        # Filter by question_id and override answers with confirmed answers
+        items_with_idx = []
+        for orig_offset, item in enumerate(raw_items):
+            qid = item["question_id"]
+            if qid in cc_map:
+                item = dict(item)  # shallow copy to avoid mutating original dataset
+                item["answer"] = cc_map[qid]["answer"]
+                items_with_idx.append((start + orig_offset, item))
+        logger.info(
+            f"Confirmed cases filter: {len(raw_items)} -> {len(items_with_idx)} items",
+        )
+    else:
+        items_with_idx = [(start + i, item) for i, item in enumerate(raw_items)]
 
     # Filter by question_type if specified
     question_types = dataset_cfg.get("question_types") or []
     if question_types:
-        before_filter = len(items_to_eval)
-        items_to_eval = [item for item in items_to_eval if item.get("question_type") in question_types]
+        before_filter = len(items_with_idx)
+        items_with_idx = [(idx, item) for idx, item in items_with_idx if item.get("question_type") in question_types]
         logger.info(
-            f"Filtered by question_types={question_types}: {before_filter} -> {len(items_to_eval)} items",
+            f"Filtered by question_types={question_types}: {before_filter} -> {len(items_with_idx)} items",
         )
 
-    logger.info(f"Evaluating {len(items_to_eval)} item(s) starting from index {start}"
+    logger.info(f"Evaluating {len(items_with_idx)} item(s) starting from index {start}"
                 + (" [eval_only: query+judge only]" if eval_only else ""))
 
     # Resolve parallelism
@@ -632,8 +614,8 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build task args — include log levels and eval_only flag
-    task_args = [(item, eval_config, start + i, log_level, reme_log_level, eval_only) for i, item in enumerate(items_to_eval)]
+    # Build task args — include log levels and eval_only flag (use original index for workspace lookup)
+    task_args = [(item, eval_config, orig_idx, log_level, reme_log_level, eval_only) for orig_idx, item in items_with_idx]
 
     # Progress tracking (force print regardless of log level, every 10 minutes)
     total_items = len(task_args)

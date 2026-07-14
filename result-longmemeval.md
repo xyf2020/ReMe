@@ -72,9 +72,46 @@
 | **Overall** | **500** | **426** | **87.6%** | **94.2%** |
 
 
-## analysis
+## 修复后的cleaned-S
 
-1. 数据集5%存在时序问题，目前上限准确率85.2%
-2. agentic效果低于prompt-based，需要调整agentic策略or system prompt
-3. 对整体提升最大的是multi-sesssion reasonin。
-4. 混合检索原始session效果就不差，但还差最终score 
+### 修复结果
+
+| 问题类型 | #diff | #original unknown | #confirmed unknown |
+|---------|-------|------------------|--------------------|
+| single-session-assistant | 0 | 0 | 0 |
+| single-session-preference | 4 | 0 | 0 |
+| single-session-user | 2 | 6 | 7 |
+| knowledge-update | 2 | 6 | 6 |
+| multi-session | 13 | 11 | 17 |
+| temporal-reasoning | 35 | 6 | 37 |
+| **Overall** | **56** | **29** | **67** |
+
+### agentic+prompted（15item） 框架
+
+| 问题类型 | Agentic(6 iter) | deduplicated agentic(6 iter) | dedupicated agentic (10iter) | dedup agentic (10iter+date) | Prompted |
+|---------|---------|---------|---------|---------|---------|
+| single-session-assistant | 56/56 (100.0%) | 56/56 (100.0%) | 56/56 (100.0%) | 56/56 (100.0%) | 56/56 (100.0%) |
+| single-session-user | 67/70 (95.7%) | 64/70 (91.4%) | 65/70 (92.9%) | 65/70 (92.9%) | 64/70 (91.4%) |
+| knowledge-update | 69/78 (88.5%) | 73/78 (93.6%) | 71/78 (91.0%) | 71/78 (91.0%) | 71/78 (91.0%) |
+| temporal-reasoning | 115/133 (86.5%) | 114/133 (85.7%) | 118/133 (88.7%) | 117/133 (88.0%) | 111/133 (83.5%) |
+| multi-session | 104/133 (78.2%) | 114/133 (85.7%) | 112/133 (84.2%) | 117/133 (88.0%) | 113/133 (85.0%) |
+| single-session-preference | 19/30 (63.3%) | 14/30 (46.7%) | 16/30 (53.3%) | 18/30 (60.0%) | 17/30 (56.7%) |
+| **总体准确率** | **430/500 (86.0%)** | **435/500 (87.0%)** | **438/500 (87.6%)** | **444/500 (88.8%)** | **432/500 (86.4%)** |
+
+python和draft也没有被使用，因为search平均被调用1.6次（不使用日期过滤）和3.8次（使用日期过滤），没啥可draft的。
+
+
+现在的进展：
+1. 初步修复了longmemeval，大约有56（11.2%）个case与原始不一致；答案为unknown的case从29(3.8%)增加到了67(13.4%)。temporal reasoning类型受影响最大。
+2. 使用新的groundtruth测评，agentic和prompted分别提升到了88.8%和86.4%
+3. 引入去重功能可以给agentic方法带来+1%的提升；日期过滤带来1.2%的提升；目前draft和python功能暂无提升
+发现的问题：
+1. 现在的架构难以处理计数类问题，auto-memory和原始session会导致统计重复
+2. 容易被错误的auto-memory误导，原始session非常重要，longmemeval的推理难度并不低
+
+TODO
+1. grudntruth 还有些问题
+2. 尝试新的架构，auto-memory功能改成构摘要，给LLM提供工具，通过auto-memory摘要读取链接到的原始session
+
+
+现在还有8个分歧：37f165cf, dd2973ad, 09ba9854, gpt4_2f8be40d, bf659f65, 7405e8b1, 9ee3ecd6, 8550ddae
