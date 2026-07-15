@@ -83,6 +83,7 @@ _JUDGE_PROMPTS: dict = _load_judge_prompts()
 
 
 def get_judge_instruction(question_type: str) -> str:
+    """Get judge prompt for the given question type."""
     return _JUDGE_PROMPTS.get(question_type, _JUDGE_PROMPTS["__default__"])
 
 
@@ -90,6 +91,7 @@ def get_judge_instruction(question_type: str) -> str:
 # Date utilities
 # ---------------------------------------------------------------------------
 def parse_haystack_date(date_str: str) -> datetime:
+    """Parse haystack date format to datetime."""
     m = re.match(r"(\d{4}/\d{2}/\d{2})\s+\(\w+\)\s+(\d{2}:\d{2})", date_str)
     if not m:
         raise ValueError(f"Cannot parse haystack date: {date_str!r}")
@@ -97,6 +99,7 @@ def parse_haystack_date(date_str: str) -> datetime:
 
 
 def to_iso(dt: datetime) -> str:
+    """Format datetime as ISO 8601 string."""
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
@@ -249,10 +252,14 @@ async def evaluate_item(client, item: dict, item_index: int, no_time_filter: boo
         context_text = "(no golden sessions found)"
 
     logger.info(
-        f"[Item {item_index}] qid={item['question_id']} type={item['question_type']} "
-        f"sessions={kept_sessions}/{total_sessions}"
-        + (f" (filtered {filtered_count} future sessions)" if filtered_count else "")
-        + f" q={question[:60]}...",
+        "[Item %s] qid=%s type=%s sessions=%s/%s%s q=%s...",
+        item_index,
+        item["question_id"],
+        item["question_type"],
+        kept_sessions,
+        total_sessions,
+        f" (filtered {filtered_count} future sessions)" if filtered_count else "",
+        question[:60],
     )
 
     # Answer
@@ -302,6 +309,7 @@ async def evaluate_item(client, item: dict, item_index: int, no_time_filter: boo
 # Main
 # ---------------------------------------------------------------------------
 async def run_eval(num_items: int, start_index: int, num_workers: int, no_time_filter: bool = False):
+    """Run golden session evaluation."""
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)

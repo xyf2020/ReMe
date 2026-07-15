@@ -53,6 +53,7 @@ _HAYSTACK_DATE_RE = re.compile(r"(\d{4}/\d{2}/\d{2})\s+\(\w+\)\s+(\d{2}:\d{2})")
 
 
 def parse_haystack_date(date_str: str) -> datetime:
+    """Parse haystack date format to datetime."""
     m = _HAYSTACK_DATE_RE.match(date_str)
     if not m:
         raise ValueError(f"Cannot parse haystack date: {date_str!r}")
@@ -67,6 +68,7 @@ _CHINESE_PATTERN = re.compile(r"[一-鿿]")
 
 
 def tokenize(text: str) -> list[str]:
+    """Tokenize text into word and character tokens."""
     tokens = _CHINESE_PATTERN.findall(text)
     tokens.extend(_WORD_PATTERN.findall(_CHINESE_PATTERN.sub(" ", text)))
     return tokens
@@ -236,6 +238,7 @@ def session_to_text(messages: list[dict]) -> str:
 # Main evaluation
 # ---------------------------------------------------------------------------
 def load_config(config_path: str | None = None) -> dict:
+    """Load and resolve evaluation config from YAML."""
     if config_path is None:
         config_path = str(Path(__file__).parent / "config.yaml")
     with open(config_path, encoding="utf-8") as f:
@@ -361,6 +364,7 @@ async def evaluate_one_item(
 
 
 async def main():
+    """Run recall evaluation from CLI."""
     parser = argparse.ArgumentParser(description="Session-level retrieval recall evaluation")
     parser.add_argument("--config", type=str, default=None, help="Path to config.yaml")
     parser.add_argument("--start_index", type=int, default=None)
@@ -532,7 +536,7 @@ def _print_summary(results: list[dict], golden_qids: set[str]) -> None:
         qt = r["question_type"]
         count_golden[qt] = count_golden.get(qt, 0) + 1
 
-    print(f"\n  Per-type case counts:")
+    print("\n  Per-type case counts:")
     print(f"    {'question_type':30s}  {'total':>5s}  {'valid':>5s}  {'golden':>6s}")
     print(f"    {'─'*30}  {'─'*5}  {'─'*5}  {'─'*6}")
     for qt in all_qtypes:

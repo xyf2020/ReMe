@@ -231,7 +231,12 @@ PROMPTED_TEMPORAL_HINT = "\n\nCurrent time context: {query_time}\n"
 # ---------------------------------------------------------------------------
 # Main evaluation pipeline
 # ---------------------------------------------------------------------------
-async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_only: bool = False) -> dict:
+async def evaluate_item(  # pylint: disable=too-many-statements
+    item: dict,
+    eval_config: dict,
+    item_index: int,
+    eval_only: bool = False,
+) -> dict:
     """Evaluate a single LongMemEval item end-to-end.
 
     Args:
@@ -268,8 +273,12 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             )
 
     logger.info(
-        f"[Item {item_index}] question_id={item['question_id']} "
-        f"type={item['question_type']} sessions={len(sorted_sessions)}" + (" [eval_only]" if eval_only else ""),
+        "[Item %s] question_id=%s type=%s sessions=%s%s",
+        item_index,
+        item["question_id"],
+        item["question_type"],
+        len(sorted_sessions),
+        " [eval_only]" if eval_only else "",
     )
 
     # Use fixed workspace directory (clean it for fresh evaluation)
@@ -560,7 +569,7 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(
+def main(  # pylint: disable=too-many-statements
     config_path: str | None = None,
     log_level: str = "INFO",
     reme_log_level: str = "INFO",
@@ -621,12 +630,17 @@ def main(
         before_filter = len(items_with_idx)
         items_with_idx = [(idx, item) for idx, item in items_with_idx if item.get("question_type") in question_types]
         logger.info(
-            f"Filtered by question_types={question_types}: {before_filter} -> {len(items_with_idx)} items",
+            "Filtered by question_types=%s: %s -> %s items",
+            question_types,
+            before_filter,
+            len(items_with_idx),
         )
 
     logger.info(
-        f"Evaluating {len(items_with_idx)} item(s) starting from index {start}"
-        + (" [eval_only: query+judge only]" if eval_only else ""),
+        "Evaluating %s item(s) starting from index %s%s",
+        len(items_with_idx),
+        start,
+        " [eval_only: query+judge only]" if eval_only else "",
     )
 
     # Resolve parallelism
@@ -715,7 +729,7 @@ def main(
     print("EVALUATION RESULTS")
     print("=" * 60)
 
-    def _accumulate(results_key, judgment_key):
+    def _accumulate(_results_key, judgment_key):
         correct = 0
         stats: dict = {}  # {question_type: {correct: int, total: int}}
         for r in results:

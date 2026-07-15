@@ -272,7 +272,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
-        tool_defaults: dict[str, dict] = kwargs.get("tool_defaults", {})
+        # tool_defaults reserved for future use
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
         tool_context_id = kwargs.get("tool_context_id")
