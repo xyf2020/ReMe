@@ -3,12 +3,13 @@
 
 import json
 import sys
-from collections import Counter, defaultdict
+from collections import defaultdict
 from pathlib import Path
 
 
-def analyze(results_path: str):
-    with open(results_path) as f:
+def analyze(results_path: str):  # pylint: disable=too-many-statements
+    """Analyze results JSON file and print statistics."""
+    with open(results_path, encoding="utf-8") as f:
         data = json.load(f)
 
     total = len(data)
@@ -44,7 +45,10 @@ def analyze(results_path: str):
     print(f"{'─'*80}")
     a_total_acc = agentic_total_correct / total * 100
     p_total_acc = prompted_total_correct / total * 100
-    print(f"{'Overall':<30} {total:>6}  {agentic_total_correct:>3}/{total:<3} ({a_total_acc:5.1f}%)  {prompted_total_correct:>3}/{total:<3} ({p_total_acc:5.1f}%)")
+    print(
+        f"{'Overall':<30} {total:>6}  {agentic_total_correct:>3}/{total:<3} "
+        f"({a_total_acc:5.1f}%)  {prompted_total_correct:>3}/{total:<3} ({p_total_acc:5.1f}%)",
+    )
     print(f"{'─'*80}")
 
     # ---- Agentic vs Prompted 对比 ----
@@ -106,11 +110,15 @@ def analyze(results_path: str):
     sessions = [item["sessions_ingested"] for item in data]
     dreams = [item["dreams_triggered"] for item in data]
 
-    print(f"  Sessions ingested — min: {min(sessions)}, max: {max(sessions)}, "
-          f"mean: {sum(sessions)/len(sessions):.1f}")
-    print(f"  Dreams triggered  — min: {min(dreams)}, max: {max(dreams)}, "
-          f"mean: {sum(dreams)/len(dreams):.1f}, "
-          f"non-zero: {sum(1 for d in dreams if d > 0)}")
+    print(
+        f"  Sessions ingested — min: {min(sessions)}, max: {max(sessions)}, "
+        f"mean: {sum(sessions)/len(sessions):.1f}",
+    )
+    print(
+        f"  Dreams triggered  — min: {min(dreams)}, max: {max(dreams)}, "
+        f"mean: {sum(dreams)/len(dreams):.1f}, "
+        f"non-zero: {sum(1 for d in dreams if d > 0)}",
+    )
 
     # ---- 错误样本分析 ----
     print(f"\n{'='*60}")

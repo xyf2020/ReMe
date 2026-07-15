@@ -176,7 +176,7 @@ async def batch_embed(client: AsyncOpenAI, texts: list[str], max_retries: int = 
                 err_str = str(e)
                 is_retryable = "429" in err_str or "5" in err_str[:50]
                 if attempt < max_retries and is_retryable:
-                    wait = 2 ** attempt * 1.0  # 1s, 2s, 4s, 8s, 16s
+                    wait = 2**attempt * 1.0  # 1s, 2s, 4s, 8s, 16s
                     logger.warning(f"Embedding API retry {attempt+1}/{max_retries} after {wait:.0f}s: {e}")
                     await asyncio.sleep(wait)
                 else:
@@ -298,7 +298,7 @@ async def evaluate_one_item(
     gt_before_q = answer_session_ids & {sid for sid, _, _ in sessions}
     if not gt_before_q:
         logger.info(
-            f"[{item['question_id']}] No ground-truth sessions before question_date, skipping"
+            f"[{item['question_id']}] No ground-truth sessions before question_date, skipping",
         )
         return {
             "question_id": item["question_id"],
@@ -331,9 +331,7 @@ async def evaluate_one_item(
     # Sort by similarity descending
     vector_order = np.argsort(-similarities)
     vector_results = [
-        (session_ids[int(i)], float(similarities[int(i)]))
-        for i in vector_order
-        if similarities[int(i)] > 0
+        (session_ids[int(i)], float(similarities[int(i)])) for i in vector_order if similarities[int(i)] > 0
     ][:candidates]
 
     # ── RRF fusion ──
@@ -404,17 +402,19 @@ async def main():
             results.append(result)
             logger.info(
                 f"  sessions={result['total_sessions']} gt_before_q={result['gt_sessions_before_q']} "
-                f"recall@5={result['recall_at_5']:.3f} recall@10={result['recall_at_10']:.3f}"
+                f"recall@5={result['recall_at_5']:.3f} recall@10={result['recall_at_10']:.3f}",
             )
         except Exception as e:
             logger.error(f"  FAILED: {e}")
-            results.append({
-                "question_id": item["question_id"],
-                "question_type": item["question_type"],
-                "error": str(e),
-                "recall_at_5": 0.0,
-                "recall_at_10": 0.0,
-            })
+            results.append(
+                {
+                    "question_id": item["question_id"],
+                    "question_type": item["question_type"],
+                    "error": str(e),
+                    "recall_at_5": 0.0,
+                    "recall_at_10": 0.0,
+                },
+            )
 
         # Progress every 10 items
         if (i + 1) % 10 == 0 or i + 1 == total:
@@ -502,14 +502,8 @@ def _print_group(label: str, stats: dict) -> None:
 def _print_summary(results: list[dict], golden_qids: set[str]) -> None:
     """Print aggregate recall statistics with 4 groups."""
     error_items = [r for r in results if "error" in r]
-    empty_gt_items = [
-        r for r in results
-        if "error" not in r and r.get("gt_sessions_before_q", 0) == 0
-    ]
-    valid = [
-        r for r in results
-        if "error" not in r and r.get("gt_sessions_before_q", 0) > 0
-    ]
+    empty_gt_items = [r for r in results if "error" not in r and r.get("gt_sessions_before_q", 0) == 0]
+    valid = [r for r in results if "error" not in r and r.get("gt_sessions_before_q", 0) > 0]
     golden_valid = [r for r in valid if r["question_id"] in golden_qids]
 
     print("\n" + "=" * 70)
@@ -580,14 +574,14 @@ def _print_summary(results: list[dict], golden_qids: set[str]) -> None:
             reason = r.get("skipped_reason", "unknown")
             print(
                 f"  [{r['question_id']}] type={r['question_type']} "
-                f"sessions={r['total_sessions']} gt=0 [SKIPPED: {reason}]"
+                f"sessions={r['total_sessions']} gt=0 [SKIPPED: {reason}]",
             )
         else:
             golden_tag = " ★" if r["question_id"] in golden_qids else ""
             print(
                 f"  [{r['question_id']}] type={r['question_type']} "
                 f"sessions={r['total_sessions']} gt={r['gt_sessions_before_q']} "
-                f"R@5={r['recall_at_5']:.3f} R@10={r['recall_at_10']:.3f}{golden_tag}"
+                f"R@5={r['recall_at_5']:.3f} R@10={r['recall_at_10']:.3f}{golden_tag}",
             )
     print()
 

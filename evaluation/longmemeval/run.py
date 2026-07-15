@@ -44,8 +44,14 @@ logger = logging.getLogger("longmemeval")
 
 # Noisy library loggers silenced by default
 _NOISY_LOGGERS = [
-    "httpx", "httpcore", "openai", "uvicorn", "multipart",
-    "asyncio", "watchfiles", "filelock",
+    "httpx",
+    "httpcore",
+    "openai",
+    "uvicorn",
+    "multipart",
+    "asyncio",
+    "watchfiles",
+    "filelock",
 ]
 
 
@@ -86,6 +92,7 @@ def _configure_worker(log_level: str, reme_log_level: str):
 
     # Re-initialize loguru for reme internals at the desired level
     from reme.utils import get_logger
+
     get_logger(level=reme_log_level.upper(), force_init=True)
 
 
@@ -203,6 +210,7 @@ async def judge_response_via_job(
         "question_type": question_type,
     }
 
+
 # ---------------------------------------------------------------------------
 # Prompted-answer system prompt (non-agentic, direct LLM generation)
 # ---------------------------------------------------------------------------
@@ -261,8 +269,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
     logger.info(
         f"[Item {item_index}] question_id={item['question_id']} "
-        f"type={item['question_type']} sessions={len(sorted_sessions)}"
-        + (" [eval_only]" if eval_only else ""),
+        f"type={item['question_type']} sessions={len(sorted_sessions)}" + (" [eval_only]" if eval_only else ""),
     )
 
     # Use fixed workspace directory (clean it for fresh evaluation)
@@ -271,9 +278,14 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     if eval_only:
         if not item_dir.exists() or not Path(workspace_dir).exists():
             logger.warning(
-                f"[Item {item_index}] eval_only: workspace not found at {item_dir}, skipping"
+                f"[Item {item_index}] eval_only: workspace not found at {item_dir}, skipping",
             )
-            _skip_judgment = {"verdict": "no", "reason": "workspace missing in eval_only mode", "metric": "binary", "question_type": item["question_type"]}
+            _skip_judgment = {
+                "verdict": "no",
+                "reason": "workspace missing in eval_only mode",
+                "metric": "binary",
+                "question_type": item["question_type"],
+            }
             return {
                 "question_id": item["question_id"],
                 "question_type": item["question_type"],
@@ -315,7 +327,11 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
             for idx, (_, session_dt, session_id, messages) in enumerate(sorted_sessions):
                 # Check if dream should be triggered before this session
-                if dream_available and prev_dt is not None and should_trigger_dream(prev_dt, session_dt, dream_trigger_hour):
+                if (
+                    dream_available
+                    and prev_dt is not None
+                    and should_trigger_dream(prev_dt, session_dt, dream_trigger_hour)
+                ):
                     dream_date = prev_dt.strftime("%Y-%m-%d")
                     if dream_date not in dream_dates_triggered:
                         logger.info(f"[Item {item_index}] Triggering dream for date={dream_date}")
@@ -544,7 +560,12 @@ def _resolve_num_workers(configured: int) -> int:
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level: str = "INFO", eval_only: bool = False):
+def main(
+    config_path: str | None = None,
+    log_level: str = "INFO",
+    reme_log_level: str = "INFO",
+    eval_only: bool = False,
+):
     """Run the LongMemEval evaluation pipeline.
 
     Args:
@@ -603,8 +624,10 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
             f"Filtered by question_types={question_types}: {before_filter} -> {len(items_with_idx)} items",
         )
 
-    logger.info(f"Evaluating {len(items_with_idx)} item(s) starting from index {start}"
-                + (" [eval_only: query+judge only]" if eval_only else ""))
+    logger.info(
+        f"Evaluating {len(items_with_idx)} item(s) starting from index {start}"
+        + (" [eval_only: query+judge only]" if eval_only else ""),
+    )
 
     # Resolve parallelism
     num_workers = _resolve_num_workers(eval_config["evaluation"].get("num_workers", 1))
@@ -615,7 +638,9 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Build task args — include log levels and eval_only flag (use original index for workspace lookup)
-    task_args = [(item, eval_config, orig_idx, log_level, reme_log_level, eval_only) for orig_idx, item in items_with_idx]
+    task_args = [
+        (item, eval_config, orig_idx, log_level, reme_log_level, eval_only) for orig_idx, item in items_with_idx
+    ]
 
     # Progress tracking (force print regardless of log level, every 10 minutes)
     total_items = len(task_args)
@@ -774,7 +799,8 @@ if __name__ == "__main__":
         help="Log level for reme internal logs — loguru (default: INFO)",
     )
     parser.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Shortcut for --log-level WARNING --reme-log-level WARNING",
     )

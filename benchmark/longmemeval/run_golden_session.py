@@ -104,7 +104,8 @@ def to_iso(dt: datetime) -> str:
 # Session formatting
 # ---------------------------------------------------------------------------
 def format_golden_sessions(
-    item: dict, question_dt: datetime | None = None
+    item: dict,
+    question_dt: datetime | None = None,
 ) -> tuple[str, int, int, list[dict]]:
     """Build context text from the golden answer sessions.
 
@@ -137,14 +138,16 @@ def format_golden_sessions(
                 if session_dt > question_dt:
                     logger.info(
                         f"[qid={qid}] Filtered future session {sid!r} "
-                        f"(session={session_dt}, question={question_dt})"
+                        f"(session={session_dt}, question={question_dt})",
                     )
-                    filtered_records.append({
-                        "question_id": qid,
-                        "session_id": sid,
-                        "session_date": date_str,
-                        "question_date": item.get("question_date", ""),
-                    })
+                    filtered_records.append(
+                        {
+                            "question_id": qid,
+                            "session_id": sid,
+                            "session_date": date_str,
+                            "question_date": item.get("question_date", ""),
+                        },
+                    )
                     continue
             except ValueError:
                 pass  # keep session if date cannot be parsed
@@ -249,7 +252,7 @@ async def evaluate_item(client, item: dict, item_index: int, no_time_filter: boo
         f"[Item {item_index}] qid={item['question_id']} type={item['question_type']} "
         f"sessions={kept_sessions}/{total_sessions}"
         + (f" (filtered {filtered_count} future sessions)" if filtered_count else "")
-        + f" q={question[:60]}..."
+        + f" q={question[:60]}...",
     )
 
     # Answer
@@ -267,11 +270,20 @@ async def evaluate_item(client, item: dict, item_index: int, no_time_filter: boo
     # Judge
     try:
         judgment = await call_judge_llm(
-            client, question, item["answer"], response, item["question_type"]
+            client,
+            question,
+            item["answer"],
+            response,
+            item["question_type"],
         )
     except Exception as e:
         logger.error(f"[Item {item_index}] Judge LLM failed: {e}")
-        judgment = {"verdict": "no", "reason": f"judge failed: {e}", "metric": "binary", "question_type": item["question_type"]}
+        judgment = {
+            "verdict": "no",
+            "reason": f"judge failed: {e}",
+            "metric": "binary",
+            "question_type": item["question_type"],
+        }
 
     logger.info(f"[Item {item_index}] Judgment: {judgment}")
 
@@ -318,8 +330,7 @@ async def run_eval(num_items: int, start_index: int, num_workers: int, no_time_f
             eta = (elapsed / completed[0] * (total - completed[0])) / 60 if completed[0] else 0
             if completed[0] % max(1, total // 20) == 0 or completed[0] == total:
                 print(
-                    f"[PROGRESS] {completed[0]}/{total} ({pct:.1f}%) "
-                    f"elapsed={elapsed/60:.1f}min ETA={eta:.1f}min",
+                    f"[PROGRESS] {completed[0]}/{total} ({pct:.1f}%) " f"elapsed={elapsed/60:.1f}min ETA={eta:.1f}min",
                     flush=True,
                 )
 
@@ -337,16 +348,14 @@ async def run_eval(num_items: int, start_index: int, num_workers: int, no_time_f
         if r is not None:
             all_filtered.extend(r.get("filtered_sessions", []))
 
-    total_golden_sessions = sum(
-        len(item["answer_session_ids"]) for item in items
-    )
+    total_golden_sessions = sum(len(item["answer_session_ids"]) for item in items)
     kept_golden = total_golden_sessions - len(all_filtered)
 
     filtered_file = output_dir / f"filtered_future_sessions_{filter_mode}_{timestamp}.json"
     with open(filtered_file, "w", encoding="utf-8") as f:
         json.dump(all_filtered, f, ensure_ascii=False, indent=2)
     logger.info(
-        f"Filtered future sessions: {len(all_filtered)} saved to {filtered_file}"
+        f"Filtered future sessions: {len(all_filtered)} saved to {filtered_file}",
     )
 
     # ── Save results ──
@@ -365,7 +374,7 @@ async def run_eval(num_items: int, start_index: int, num_workers: int, no_time_f
         f"\n  ── Golden Session Time Filter ──\n"
         f"  Total golden sessions : {total_golden_sessions}\n"
         f"  Kept (valid)          : {kept_golden}\n"
-        f"  Filtered (future)     : {len(all_filtered)}  -> {filtered_file}"
+        f"  Filtered (future)     : {len(all_filtered)}  -> {filtered_file}",
     )
 
     correct = 0
@@ -403,7 +412,11 @@ if __name__ == "__main__":
     parser.add_argument("--num_items", type=int, default=500, help="Number of items to evaluate (default: all 500)")
     parser.add_argument("--start_index", type=int, default=0, help="Start index in dataset")
     parser.add_argument("--num_workers", type=int, default=32, help="Concurrent workers (default: 32)")
-    parser.add_argument("--no_time_filter", action="store_true", help="Disable time filtering (keep all golden sessions regardless of time)")
+    parser.add_argument(
+        "--no_time_filter",
+        action="store_true",
+        help="Disable time filtering (keep all golden sessions regardless of time)",
+    )
     args = parser.parse_args()
 
     asyncio.run(run_eval(args.num_items, args.start_index, args.num_workers, args.no_time_filter))
