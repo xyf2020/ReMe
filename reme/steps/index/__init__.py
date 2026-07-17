@@ -1,6 +1,7 @@
 """Index steps."""
 
 from .bm25_search import Bm25SearchStep
+from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep
 from .draft import AddDraftStep, ReadAllDraftStep
 from .log_changes import LogChangesStep
@@ -10,6 +11,7 @@ from .search import SearchStep
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
 from .vector_search import VectorSearchStep
+from .wait_for_paths import WaitForPathsStep
 from .watch_changes import (
     DEFAULT_LOW_POWER_POLL_MS,
     DEFAULT_WATCH_DEBOUNCE_MS,
@@ -21,6 +23,7 @@ __all__ = [
     "AddDraftStep",
     "Bm25SearchStep",
     "ChangeApplyStep",
+    "ClearPathsStep",
     "ClearStoreStep",
     "DEFAULT_LOW_POWER_POLL_MS",
     "DEFAULT_WATCH_DEBOUNCE_MS",
@@ -34,5 +37,6 @@ __all__ = [
     "UpdateCatalogStep",
     "UpdateIndexStep",
     "VectorSearchStep",
+    "WaitForPathsStep",
     "WatchChangesStep",
 ]

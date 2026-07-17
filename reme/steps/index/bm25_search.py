@@ -4,10 +4,12 @@ import datetime
 from typing import Final
 
 from ..base_step import BaseStep
+from ._source_format import render_with_source
 from ...components import R
 from ...schema import FileChunk
 
 _MAX_CANDIDATES: Final = 200
+_CANDIDATE_MULTIPLIER: Final = 10
 
 
 @R.register("bm25_search_step")
@@ -17,9 +19,10 @@ class Bm25SearchStep(BaseStep):
     TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
     SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
 
-    def __init__(self, *args, seen_ttl_hours: float = 24, **kwargs):
+    def __init__(self, *args, seen_ttl_hours: float = 24, include_source: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
         self.seen_ttl_hours = seen_ttl_hours
+        self.include_source = include_source
 
     def _tool_context_store(self, tool_context_id: str) -> dict:
         """Return the mutable state bucket for a tool context."""
@@ -47,6 +50,7 @@ class Bm25SearchStep(BaseStep):
         assert self.context is not None
         query: str = (self.context.get("query", "") or "").strip()
         limit: int = int(self.context.get("limit") or 5)
+        min_score: float = float(self.context.get("min_score") or 0.0)
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
 
         if not query:
@@ -55,16 +59,22 @@ class Bm25SearchStep(BaseStep):
             return self.context.response
         assert limit > 0, f"limit must be positive, got {limit}"
 
-        candidates = min(_MAX_CANDIDATES, max(1, limit * 5))
+        candidates = min(_MAX_CANDIDATES, max(1, limit * _CANDIDATE_MULTIPLIER))
         results = await self.file_store.keyword_search(query, candidates, {})
         self.logger.info(f"[{self.name}] query={query!r} candidates={candidates} hits={len(results)}")
+
+        if min_score > 0.0:
+            results = [chunk for chunk in results if chunk.score >= min_score]
 
         if tool_context_id:
             results = self._dedupe_tool_context(results, tool_context_id, limit)
         else:
             results = results[:limit]
 
-        self.context.response.answer = "\n\n".join(c.text for c in results)
+        if self.include_source:
+            self.context.response.answer = render_with_source(results, self.workspace_path)
+        else:
+            self.context.response.answer = "\n\n".join(c.text for c in results)
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in results
         ]

@@ -4,10 +4,8 @@ service:
 jobs:
   index_update_loop:
     backend: background
-    watch_dirs: [daily_dir, digest_dir, resource_dir]
-#    watch_dirs: [daily_dir, digest_dir]
-    watch_suffixes: [md, jsonl]
-#    watch_suffixes: [md]
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
     steps:
       - backend: init_changes_step
         monitor_type: file_store
@@ -216,6 +214,15 @@ jobs:
     steps:
       - backend: health_check_step
 
+  status:
+    backend: base
+    description: "report memory estimates for stateful data components and process RSS"
+    parameters:
+      type: object
+      properties: { }
+    steps:
+      - backend: status_step
+
   help:
     backend: base
     description: "list all registered jobs with their metadata"
@@ -224,6 +231,24 @@ jobs:
       properties: { }
     steps:
       - backend: help_step
+
+#  shell:
+#    backend: base
+#    description: "execute a shell command asynchronously in the workspace"
+#    parameters:
+#      type: object
+#      properties:
+#        cmd:
+#          type: string
+#          description: "shell command to execute"
+#        shell_timeout:
+#          type: number
+#          description: "maximum execution time in seconds"
+#          default: 86400
+#      required:
+#        - cmd
+#    steps:
+#      - backend: shell_step
 
   traverse:
     backend: base
@@ -599,20 +624,20 @@ components:
     default:
       backend: regex
 
-  as_embedding:
-    default:
-      backend: ${EMBEDDING_BACKEND:-openai}
-      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
-      dimensions: 1024
-      credential:
-        api_key: ${EMBEDDING_API_KEY:-}
-        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      parameters: { }
-
-  embedding_store:
-    default:
-      backend: local
-      as_embedding: default
+#  as_embedding:
+#    default:
+#      backend: ${EMBEDDING_BACKEND:-openai}
+#      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+#      dimensions: 1024
+#      credential:
+#        api_key: ${EMBEDDING_API_KEY:-}
+#        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+#      parameters: { }
+#
+#  embedding_store:
+#    default:
+#      backend: local
+#      as_embedding: default
 
   as_llm:
     default:
@@ -647,6 +672,20 @@ components:
       api_key: ${CLAUDE_CODE_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
+      system_prompt_mode: replace
+    codex:
+      backend: codex
+      model: ${CODEX_MODEL_NAME:-}
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+      approval_mode: auto_review
+      sandbox: full-access
+    codex_oauth:
+      backend: codex
+      model: ${CODEX_MODEL_NAME:-}
+      codex_home: ${CODEX_HOME:-~/.codex}
+      approval_mode: auto_review
+      sandbox: full-access
 
   file_graph:
     default:
@@ -687,7 +726,7 @@ components:
     default:
       backend: local
       store_name: local
-      #  embedding_store: default
+#      embedding_store: default
       embedding_store: ""
       keyword_index: default
       file_graph: default

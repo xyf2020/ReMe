@@ -10,6 +10,24 @@ from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 
 
+def test_main_loads_env_before_calling_server(monkeypatch):
+    """Client actions can resolve connection settings from the local .env."""
+    events = []
+
+    main_globals = reme_module.main.__globals__
+    monkeypatch.setitem(main_globals, "load_env", lambda: events.append("load_env"))
+    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("shell", {"cmd": "pwd"}))
+
+    async def fake_call_server(action, **kwargs):
+        events.append(("call_server", action, kwargs))
+
+    monkeypatch.setitem(main_globals, "call_server", fake_call_server)
+
+    reme_module.main()
+
+    assert events == ["load_env", ("call_server", "shell", {"cmd": "pwd"})]
+
+
 def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
     """``reme start job=...`` is translated into a one-shot cli service config."""
 
@@ -215,4 +233,38 @@ def test_call_server_treats_show_metadata_as_client_kwarg(monkeypatch, capsys):
     assert seen["client_kwargs"] == {"show_metadata": True}
     assert seen["action"] == "version"
     assert seen["payload"] == {}
+    assert capsys.readouterr().out == "ok\n"
+
+
+def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
+    """Shell-specific parameter names do not collide with client options."""
+    seen = {}
+
+    class FakeClient:
+        """Async client stub that records shell request arguments."""
+
+        def __init__(self, **kwargs):
+            seen["client_kwargs"] = kwargs
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def __call__(self, action: str, **kwargs):
+            seen["action"] = action
+            seen["payload"] = kwargs
+            yield "ok"
+
+    monkeypatch.setattr(reme_module.R, "get", lambda component_type, backend: FakeClient)
+    monkeypatch.setattr(reme_module, "running_service_config", lambda: None)
+
+    async def run():
+        await reme_module.call_server("shell", backend="http", cmd="ls", shell_timeout=5)
+
+    asyncio.run(run())
+
+    assert seen["action"] == "shell"
+    assert seen["payload"] == {"cmd": "ls", "shell_timeout": 5}
     assert capsys.readouterr().out == "ok\n"

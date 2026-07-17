@@ -84,9 +84,6 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     # -- Batching --
 
-    def _truncate(self, text: str) -> str:
-        return text if len(text) <= self.max_input_length else text[: self.max_input_length]
-
     def _partition_by_cache(self, texts: list[str]) -> tuple[list[np.ndarray | None], list[Miss]]:
         results: list[np.ndarray | None] = [None] * len(texts)
         misses: list[Miss] = []
@@ -101,8 +98,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
         size = self.max_batch_size
-        batches = [misses[i : i + size] for i in range(0, len(misses), size)]
-        for batch in batches:
+        for start in range(0, len(misses), size):
+            batch = misses[start : start + size]
             for idx, key, emb in await self._compute_batch(batch, **kwargs):
                 results[idx] = emb
                 self._cache_put(key, emb)

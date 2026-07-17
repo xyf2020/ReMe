@@ -6,7 +6,7 @@ from enum import Enum
 class ChunkEnum(str, Enum):
     """Enumeration of possible chunk categories for stream processing.
 
-    Covers both AgentScope and Claude Code SDK streaming protocols:
+    Covers AgentScope, Claude Code SDK, and Codex streaming protocols:
 
     AgentScope events -> ChunkEnum mapping:
         ReplyStartEvent          -> REPLY_START
@@ -28,6 +28,9 @@ class ChunkEnum(str, Enum):
         ToolResultBlock -> TOOL_RESULT
         ResultMessage   -> USAGE + DONE
         ResultMessage.is_error -> ERROR
+
+    Codex app-server notifications follow the same lifecycle categories;
+    thread ids are session ids and item ids correlate tool calls/results.
     """
 
     # Lifecycle markers
@@ -42,6 +45,7 @@ class ChunkEnum(str, Enum):
     # Tool interaction
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
+    APPROVAL = "approval"
 
     # Metadata & terminal
     USAGE = "usage"

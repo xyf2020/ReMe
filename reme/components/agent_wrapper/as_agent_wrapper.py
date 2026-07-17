@@ -46,6 +46,7 @@ from agentscope.tool import (
     Read,
     ToolBase,
     ToolChunk,
+    ToolChoice,
     Toolkit,
     Write,
 )
@@ -266,7 +267,6 @@ class AsAgentWrapper(BaseAgentWrapper):
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
-        kwargs = self._merged_kwargs(kwargs)
         self._cleanup_expired_sessions()
         self._load_tool_env()
 
@@ -330,6 +330,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             res = await model.generate_structured_output(
                 messages=agent.state.context,
                 structured_model=output_schema,
+                tool_choice=ToolChoice(mode="auto"),
             )
             result["structured_output"] = res.content
 
@@ -426,6 +427,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""
+        kwargs = self._merged_stream_kwargs(kwargs)
         agent, inputs = await self._build_agent(inputs, **kwargs)
 
         async for event in agent.reply_stream(inputs):

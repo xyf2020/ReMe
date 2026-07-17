@@ -7,7 +7,7 @@ from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode
-from reme.steps.index import AddDraftStep, ReadAllDraftStep, SearchStep
+from reme.steps.index import AddDraftStep, Bm25SearchStep, ReadAllDraftStep, SearchStep, VectorSearchStep
 
 
 class FakeSearchStore(BaseFileStore):
@@ -110,6 +110,26 @@ def test_search_step_rrf_merges_vector_and_keyword_by_chunk_id():
     asyncio.run(run())
 
 
+def test_lme_plain_search_steps_use_ten_times_limit_candidates():
+    """LME vector/bm25 tools fetch a wider candidate pool before truncating."""
+
+    async def run():
+        store = FakeSearchStore()
+
+        vector = VectorSearchStep(file_store=store, include_source=False)
+        bm25 = Bm25SearchStep(file_store=store, include_source=False)
+
+        await vector(RuntimeContext(query="alpha", limit=3))
+        await bm25(RuntimeContext(query="alpha", limit=3))
+
+        assert store.calls == [
+            ("vector", "alpha", 30, {}),
+            ("keyword", "alpha", 30, {}),
+        ]
+
+    asyncio.run(run())
+
+
 def test_draft_steps_accumulate_by_tool_context_id():
     """Drafts are stored in app metadata and isolated by injected tool_context_id."""
 
@@ -147,6 +167,38 @@ def test_search_step_keyword_only_uses_keyword_scores_and_min_score():
         assert "keyword=4.0000" not in resp.answer
         assert "score=4.0000" in resp.answer
         assert "daily/low.md" not in resp.answer
+
+    asyncio.run(run())
+
+
+def test_plain_search_steps_apply_min_score_before_truncation():
+    """Vector-only and BM25-only tools should not return hits below ``min_score``."""
+
+    async def run():
+        vector_store = FakeSearchStore(
+            vector_results=[
+                _chunk("vector-high", "daily/high.md", "strong vector hit", "vector", 0.9),
+                _chunk("vector-low", "daily/low.md", "weak vector hit", "vector", 0.2),
+            ],
+        )
+        keyword_store = FakeSearchStore(
+            keyword_results=[
+                _chunk("keyword-high", "daily/high.md", "strong keyword hit", "keyword", 4.0),
+                _chunk("keyword-low", "daily/low.md", "weak keyword hit", "keyword", 0.2),
+            ],
+        )
+
+        vector = await VectorSearchStep(file_store=vector_store, include_source=False)(
+            RuntimeContext(query="alpha", limit=5, min_score=0.5),
+        )
+        keyword = await Bm25SearchStep(file_store=keyword_store, include_source=False)(
+            RuntimeContext(query="alpha", limit=5, min_score=1.0),
+        )
+
+        assert [result["id"] for result in vector.metadata["results"]] == ["vector-high"]
+        assert [result["id"] for result in keyword.metadata["results"]] == ["keyword-high"]
+        assert vector.answer == "strong vector hit"
+        assert keyword.answer == "strong keyword hit"
 
     asyncio.run(run())
 
