@@ -4,7 +4,6 @@
 .vscode/
 .qoder/
 *.code-workspace
-.qoder/
 
 # Local environment
 .env
@@ -38,7 +37,8 @@ dist/
 nohup.out
 nohup*.out
 log/
-logs/
+logs/*
+!logs/.gitkeep
 runs/
 tmp*/
 temp*/
@@ -55,19 +55,18 @@ vault/
 docs/_build/
 site/
 
-# Datasets & workspaces
-longmemeval/
-datasets/
-memory_workspaces/
+# Memory workspaces (keep dirs, ignore contents)
+memory_workspaces/*/*
+!memory_workspaces/*/.gitkeep
 
-# LongMemEval evaluation outputs
-evaluation/longmemeval/logs/*
-!evaluation/longmemeval/logs/
-!evaluation/longmemeval/logs/.gitkeep
-evaluation/longmemeval/results/*
-!evaluation/longmemeval/results/
-!evaluation/longmemeval/results/.gitkeep
-evaluation/longmemeval/demo.py
-benchmark/longmemeval/results/*
-!benchmark/longmemeval/results/
-!benchmark/longmemeval/results/.gitkeep
+# LongMemEval raw data (download via download.py)
+datasets/longmemeval/longmemeval_oracle.json
+datasets/longmemeval/longmemeval_s_cleaned.json
+datasets/longmemeval/longmemeval_m_cleaned.json
+
+# BEAM dataset (clone via git)
+datasets/BEAM/
+
+# Benchmark outputs
+benchmark/results/*
+!benchmark/results/.gitkeep
