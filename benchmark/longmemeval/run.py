@@ -6,12 +6,12 @@ dream is triggered when sessions cross midnight (23:00); finally questions are
 answered via search and judged by an LLM.
 
 Usage:
-    python evaluation/longmemeval/run.py
-    python evaluation/longmemeval/run.py --config evaluation/longmemeval/config.yaml
-    python evaluation/longmemeval/run.py -q                          # quiet: only eval-level logs
-    python evaluation/longmemeval/run.py --log-level WARNING         # reduce eval runner logs
-    python evaluation/longmemeval/run.py --reme-log-level WARNING    # reduce reme internal logs
-    python evaluation/longmemeval/run.py --eval_only                 # query+judge only, reuse existing workspace
+    python benchmark/longmemeval/run.py
+    python benchmark/longmemeval/run.py --config benchmark/longmemeval/config.yaml
+    python benchmark/longmemeval/run.py -q                          # quiet: only eval-level logs
+    python benchmark/longmemeval/run.py --log-level WARNING         # reduce eval runner logs
+    python benchmark/longmemeval/run.py --reme-log-level WARNING    # reduce reme internal logs
+    python benchmark/longmemeval/run.py --eval_only                 # query+judge only, reuse existing workspace
 """
 
 import json
@@ -31,8 +31,8 @@ from dotenv import load_dotenv
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
-# Workspace root for evaluation items
-_WORKSPACE_ROOT = _PROJECT_ROOT / "memory_workspaces/longmemeval-s"
+# Workspace root for evaluation items — read from config.yaml (dataset.workspace_root)
+_WORKSPACE_ROOT_DEFAULT = "memory_workspaces/longmemeval-s"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -49,12 +49,14 @@ _NOISY_LOGGERS = [
 ]
 
 
-def setup_logging(log_level: str, reme_log_level: str):
+def setup_logging(log_level: str, reme_log_level: str,
+                   log_dir: str | None = None):
     """Configure logging for the eval runner and reme internals.
 
     Args:
         log_level: Level for the eval runner logger (DEBUG/INFO/WARNING/ERROR).
         reme_log_level: Level for reme's internal loguru logger.
+        log_dir: Per-run log directory (absolute path). None = no file logging.
     """
     numeric = getattr(logging, log_level.upper(), logging.INFO)
     # Eval runner logger
@@ -67,11 +69,24 @@ def setup_logging(log_level: str, reme_log_level: str):
             lib_logger = logging.getLogger(name)
             lib_logger.setLevel(max(numeric, logging.WARNING))
 
+    # Add file handler for eval runner if log_dir is specified
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        log_filepath = os.path.join(log_dir, "runner.log")
+        file_handler = logging.FileHandler(log_filepath, encoding="utf-8")
+        file_handler.setLevel(numeric)
+        file_handler.setFormatter(logging.Formatter(_DEFAULT_LOG_FORMAT))
+        logging.getLogger().addHandler(file_handler)
+        logger.info(f"Eval runner log file: {log_filepath}")
+
     # Reme internal logger (loguru) — will be applied per-worker via _configure_worker
     os.environ["REME_LOG_LEVEL"] = reme_log_level.upper()
+    if log_dir:
+        os.environ["REME_LOG_DIR"] = log_dir
 
 
-def _configure_worker(log_level: str, reme_log_level: str):
+def _configure_worker(log_level: str, reme_log_level: str,
+                       log_dir: str | None = None):
     """Set up logging inside a multiprocessing worker process.
 
     Must be called at the top of each worker because child processes inherit
@@ -84,9 +99,20 @@ def _configure_worker(log_level: str, reme_log_level: str):
         for name in _NOISY_LOGGERS:
             logging.getLogger(name).setLevel(max(numeric, logging.WARNING))
 
+    # Add file handler for eval runner in worker process
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        pid = os.getpid()
+        log_filepath = os.path.join(log_dir, f"worker-{pid}.log")
+        file_handler = logging.FileHandler(log_filepath, encoding="utf-8")
+        file_handler.setLevel(numeric)
+        file_handler.setFormatter(logging.Formatter(_DEFAULT_LOG_FORMAT))
+        logging.getLogger().addHandler(file_handler)
+
     # Re-initialize loguru for reme internals at the desired level
     from reme.utils import get_logger
-    get_logger(level=reme_log_level.upper(), force_init=True)
+    reme_log_dir = log_dir or "logs"
+    get_logger(log_dir=reme_log_dir, level=reme_log_level.upper(), force_init=True)
 
 
 # ---------------------------------------------------------------------------
@@ -249,7 +275,8 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     )
 
     # Use fixed workspace directory (clean it for fresh evaluation)
-    item_dir = _WORKSPACE_ROOT / f"item_{item_index}"
+    workspace_root = _PROJECT_ROOT / eval_config["dataset"].get("workspace_root", _WORKSPACE_ROOT_DEFAULT)
+    item_dir = workspace_root / f"item_{item_index}"
     workspace_dir = str(item_dir / ".reme")
     if eval_only:
         if not item_dir.exists() or not Path(workspace_dir).exists():
@@ -276,6 +303,17 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             shutil.rmtree(item_dir)
             logger.info(f"[Item {item_index}] Cleaned existing workspace: {item_dir}")
         item_dir.mkdir(parents=True, exist_ok=True)
+
+    # Pre-initialize ReMe's loguru logger with the correct log_dir
+    # (singleton — Application.__init__ will reuse this instance)
+    output_cfg = eval_config.get("output", {})
+    if output_cfg.get("log_to_file", False):
+        reme_log_dir = os.environ.get("REME_LOG_DIR")
+        if reme_log_dir:
+            from reme.utils import get_logger
+            get_logger(log_dir=reme_log_dir, level=os.environ.get("REME_LOG_LEVEL", "INFO"),
+                       log_to_console=output_cfg.get("log_to_console", True),
+                       log_to_file=True, force_init=True)
 
     cfg = resolve_app_config(
         config=reme_cfg["config"],
@@ -461,10 +499,10 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 # ---------------------------------------------------------------------------
 def _evaluate_item_worker(task_input: tuple) -> dict:
     """Worker function for multiprocessing. Each process gets its own event loop."""
-    item, eval_config, item_index, log_level, reme_log_level, eval_only = task_input
+    item, eval_config, item_index, log_level, reme_log_level, eval_only, log_dir = task_input
     import asyncio  # pylint: disable=import-outside-toplevel
 
-    _configure_worker(log_level, reme_log_level)
+    _configure_worker(log_level, reme_log_level, log_dir=log_dir)
 
     # Permanently suppress "Task exception was never retrieved" /
     # "Event loop is closed" noise from httpx AsyncClient GC cleanup.
@@ -503,8 +541,19 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     """
     from multiprocessing import Pool  # pylint: disable=import-outside-toplevel
 
-    setup_logging(log_level, reme_log_level)
+    # Load config BEFORE logging setup so log_dir is available
     eval_config = load_eval_config(config_path)
+
+    # Resolve per-run log directory from config
+    output_cfg = eval_config.get("output", {})
+    log_dir_abs = None
+    if output_cfg.get("log_to_file", False):
+        log_dir_raw = output_cfg.get("log_dir", "logs")
+        log_prefix = output_cfg.get("log_prefix", "longmemeval")
+        run_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        log_dir_abs = str(_PROJECT_ROOT / log_dir_raw / f"{log_prefix}_{run_ts}")
+
+    setup_logging(log_level, reme_log_level, log_dir=log_dir_abs)
     dataset_cfg = eval_config["dataset"]
 
     # Load dataset
@@ -517,29 +566,39 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     num_items = dataset_cfg.get("num_items", 1)
     raw_items = data[start : start + num_items]
 
-    # Load confirmed cases if specified (overrides answers, filters items by question_id)
-    confirmed_cases_path = dataset_cfg.get("confirmed_cases")
-    if confirmed_cases_path:
-        cc_full_path = _PROJECT_ROOT / confirmed_cases_path
-        logger.info(f"Loading confirmed cases from {cc_full_path}")
-        with open(cc_full_path, encoding="utf-8") as f:
-            cc_data = json.load(f)
-        cc_map = {item["question_id"]: item for item in cc_data}
-        logger.info(f"Loaded {len(cc_map)} confirmed cases")
+    # Load ground truth override if specified (replaces dataset answers by question_id)
+    gt_path = dataset_cfg.get("ground_truth_path")
+    gt_map: dict[str, str] = {}
+    if gt_path:
+        gt_full_path = _PROJECT_ROOT / gt_path
+        if gt_full_path.exists():
+            logger.info(f"Loading ground truth override from {gt_full_path}")
+            with open(gt_full_path, encoding="utf-8") as f:
+                gt_data = json.load(f)
+            gt_map = {entry["question_id"]: str(entry["answer"]) for entry in gt_data}
+            logger.info(f"Loaded {len(gt_map)} ground truth entries")
+        else:
+            logger.warning(f"ground_truth_path specified but file not found: {gt_full_path}")
 
-        # Filter by question_id and override answers with confirmed answers
-        items_with_idx = []
-        for orig_offset, item in enumerate(raw_items):
-            qid = item["question_id"]
-            if qid in cc_map:
+    # Apply ground truth override and build item list
+    items_with_idx = []
+    for orig_offset, item in enumerate(raw_items):
+        qid = item["question_id"]
+
+        if gt_map:
+            if qid in gt_map:
                 item = dict(item)  # shallow copy to avoid mutating original dataset
-                item["answer"] = cc_map[qid]["answer"]
+                item["answer"] = gt_map[qid]
                 items_with_idx.append((start + orig_offset, item))
+            # If gt_map is active but qid not in it, skip this item (gt_map defines the evaluation set)
+        else:
+            items_with_idx.append((start + orig_offset, item))
+
+    if gt_map:
         logger.info(
-            f"Confirmed cases filter: {len(raw_items)} -> {len(items_with_idx)} items",
+            f"Ground truth override: {len(raw_items)} -> {len(items_with_idx)} items "
+            f"({len(gt_map)} ground truth entries loaded)",
         )
-    else:
-        items_with_idx = [(start + i, item) for i, item in enumerate(raw_items)]
 
     # Filter by question_type if specified
     question_types = dataset_cfg.get("question_types") or []
@@ -561,8 +620,11 @@ def main(config_path: str | None = None, log_level: str = "INFO", reme_log_level
     output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build task args — include log levels and eval_only flag (use original index for workspace lookup)
-    task_args = [(item, eval_config, orig_idx, log_level, reme_log_level, eval_only) for orig_idx, item in items_with_idx]
+    # Build task args — include log levels, eval_only flag, and log paths (use original index for workspace lookup)
+    task_args = [
+        (item, eval_config, orig_idx, log_level, reme_log_level, eval_only, log_dir_abs)
+        for orig_idx, item in items_with_idx
+    ]
 
     # Progress tracking (force print regardless of log level, every 10 minutes)
     total_items = len(task_args)
