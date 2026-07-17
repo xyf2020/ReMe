@@ -1268,12 +1268,7 @@
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 23:40",
     "answer": "The information provided is not enough. You did not mention baking egg tarts.",
-    "evidence_session_ids": [
-      "answer_733e443a_abs_1",
-      "answer_733e443a_abs_3",
-      "answer_733e443a_abs_2",
-      "answer_733e443a_abs_4"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "80ec1f4f_abs",
@@ -1291,41 +1286,28 @@
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 19:56",
     "answer": "The information provided is not enough. You did not mention that you have a 30-gallon tank.",
-    "evidence_session_ids": [
-      "answer_3e5fea0e_abs_2",
-      "answer_3e5fea0e_abs_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "60bf93ed_abs",
     "question_type": "multi-session",
     "question_time": "2023/01/24 (Tue) 23:58",
     "answer": "The information provided is not enough. You did not mention buying an iPad case.",
-    "evidence_session_ids": [
-      "answer_e0956e0a_abs_2",
-      "answer_e0956e0a_abs_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "edced276_abs",
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 20:59",
     "answer": "The information provided is not enough. You mentioned traveling for 10 days in Hawaii but did not mention abything about the trip to Seattle.",
-    "evidence_session_ids": [
-      "answer_60e8941a_abs_1",
-      "answer_60e8941a_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_372c3eed_abs",
     "question_type": "multi-session",
     "question_time": "2023/08/20 (Sun) 23:54",
     "answer": "The information provided is not enough. You mentioned 4 years in high school (2010-2014), 2 years at PCC (2014-2016), and 4 years at UCLA (2016-2020). But you didn't mention the number of years you spend getting the Master's degree",
-    "evidence_session_ids": [
-      "answer_35c5419d_abs_3",
-      "answer_35c5419d_abs_1",
-      "answer_35c5419d_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "8a2466db",
@@ -1662,10 +1644,7 @@
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 23:17",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_353d3c6d_2",
-      "answer_353d3c6d_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "1f2b8d4f",
@@ -2252,50 +2231,35 @@
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 18:25",
     "answer": "The information provided is not enough. You did not mention how many paged do you have left to read in 'Sapiens'.",
-    "evidence_session_ids": [
-      "answer_bf633415_abs_1",
-      "answer_bf633415_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "6456829e_abs",
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 14:24",
     "answer": "The information provided is not enough. You mentioned planting 5 plants for tomatoes but you did not mention chili peppers.",
-    "evidence_session_ids": [
-      "answer_743f03a1_abs_1",
-      "answer_743f03a1_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "e5ba910e_abs",
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 17:19",
     "answer": "The information provided is not enough. You mentioned purchasing a headphone, but you did not mention the iPad.",
-    "evidence_session_ids": [
-      "answer_e49ed9d3_abs_1",
-      "answer_e49ed9d3_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "a96c20ee_abs",
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 12:03",
     "answer": "The information provided is not enough. You did not mention presenting a poster for your undergrad course research project.",
-    "evidence_session_ids": [
-      "answer_ef84b994_abs_1",
-      "answer_ef84b994_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "ba358f49_abs",
     "question_type": "multi-session",
     "question_time": "2023/05/30 (Tue) 22:29",
     "answer": "The information provided is not enough. You did not mention how old Rachel is right now, nor when will you get married.",
-    "evidence_session_ids": [
-      "answer_cbd08e3c_abs_1",
-      "answer_cbd08e3c_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "09ba9854_abs",
@@ -3055,51 +3019,35 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/04/10 (Mon) 10:15",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_4be1b6b4_1",
-      "answer_4be1b6b4_2",
-      "answer_4be1b6b4_3"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_2487a7cb",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/24 (Wed) 08:02",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_1c6b85ea_2",
-      "answer_1c6b85ea_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_76048e76",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/10 (Fri) 03:39",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_b535969f_1",
-      "answer_b535969f_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_2312f94c",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/15 (Wed) 04:45",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_5328c3c2_2",
-      "answer_5328c3c2_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "0bb5a684",
     "question_type": "temporal-reasoning",
     "question_time": "2023/01/13 (Fri) 12:09",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_e936197f_1",
-      "answer_e936197f_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "08f4fc43",
@@ -3126,20 +3074,14 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/10 (Fri) 15:30",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_7a4a93f1_2",
-      "answer_7a4a93f1_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "2a1811e2",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/26 (Sun) 12:05",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_1cc3cd0c_1",
-      "answer_1cc3cd0c_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "bbf86515",
@@ -3156,23 +3098,14 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/24 (Wed) 09:14",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_099c1b6c_5",
-      "answer_099c1b6c_2",
-      "answer_099c1b6c_4",
-      "answer_099c1b6c_3",
-      "answer_099c1b6c_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_0b2f1d21",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/25 (Thu) 09:31",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_c4e5d969_2",
-      "answer_c4e5d969_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "f0853d11",
@@ -3189,34 +3122,21 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/29 (Mon) 08:51",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_d50a8a33_1",
-      "answer_d50a8a33_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_70e84552",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/25 (Thu) 08:03",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_b3070ec4_2",
-      "answer_b3070ec4_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "a3838d2b",
     "question_type": "temporal-reasoning",
     "question_time": "2023/11/29 (Wed) 03:31",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_4ffa04a2_1",
-      "answer_4ffa04a2_6",
-      "answer_4ffa04a2_4",
-      "answer_4ffa04a2_3",
-      "answer_4ffa04a2_5",
-      "answer_4ffa04a2_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_93159ced",
@@ -3243,41 +3163,28 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/25 (Thu) 11:29",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_30dfe889_1",
-      "answer_30dfe889_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "982b5123",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/21 (Sun) 10:30",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_ab603dd5_1",
-      "answer_ab603dd5_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "b9cfe692",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/24 (Wed) 08:08",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_5e3bb940_3",
-      "answer_5e3bb940_2",
-      "answer_5e3bb940_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_4edbafa2",
     "question_type": "temporal-reasoning",
     "question_time": "2023/07/01 (Sat) 02:36",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_0a00c163_1",
-      "answer_0a00c163_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "c8090214",
@@ -3294,30 +3201,21 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/29 (Mon) 08:33",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_fb793c87_1",
-      "answer_fb793c87_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "e4e14d04",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/28 (Sun) 15:46",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_cf425855_1",
-      "answer_cf425855_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "c9f37c46",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/20 (Sat) 00:44",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_cdba3d9f_1",
-      "answer_cdba3d9f_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_2c50253f",
@@ -3344,10 +3242,7 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/23 (Tue) 04:05",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_b9d9150e_2",
-      "answer_b9d9150e_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_9a159967",
@@ -3365,30 +3260,21 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/21 (Sun) 19:31",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_be73098b_2",
-      "answer_be73098b_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_8c8961ae",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/28 (Sun) 13:10",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_72d9aa58_1",
-      "answer_72d9aa58_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_d9af6064",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/28 (Tue) 01:25",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_da704e79_2",
-      "answer_da704e79_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_7de946e7",
@@ -3405,20 +3291,14 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/27 (Sat) 10:19",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_991d55e5_1",
-      "answer_991d55e5_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "993da5e2",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/26 (Fri) 17:49",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_54f0d6f9_1",
-      "answer_54f0d6f9_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "a3045048",
@@ -3445,10 +3325,7 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/20 (Sat) 09:28",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_aa930b56_1",
-      "answer_aa930b56_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_88806d6e",
@@ -3465,10 +3342,7 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/04/19 (Wed) 00:38",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_5fcca8bc_2",
-      "answer_5fcca8bc_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_93f6379c",
@@ -3496,11 +3370,7 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/26 (Fri) 00:18",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_7a36e820_2",
-      "answer_7a36e820_3",
-      "answer_7a36e820_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "6613b389",
@@ -3518,60 +3388,42 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/26 (Fri) 12:55",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_5a78688d_1",
-      "answer_5a78688d_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_0a05b494",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/23 (Tue) 00:30",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_a68db5db_2",
-      "answer_a68db5db_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_1a1dc16d",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/09 (Tue) 10:01",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_faad7d7a_2",
-      "answer_faad7d7a_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_2f584639",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/30 (Tue) 07:03",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_11a8f823_2",
-      "answer_11a8f823_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_213fd887",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/24 (Wed) 14:01",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_53582e7e_2",
-      "answer_53582e7e_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_5438fa52",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/27 (Sat) 16:21",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_b10f3828_1",
-      "answer_b10f3828_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_c27434e8",
@@ -3588,20 +3440,14 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/17 (Fri) 17:52",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_65600ff6_2",
-      "answer_65600ff6_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "8c18457d",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/29 (Wed) 13:43",
     "answer": "The information provided is not enough.",
-    "evidence_session_ids": [
-      "answer_124f5dc3_2",
-      "answer_124f5dc3_1"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_70e84552_abs",
@@ -3618,50 +3464,35 @@
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/30 (Tue) 18:54",
     "answer": "The information provided is not enough. From the information provided, You haven't started working at Google yet.",
-    "evidence_session_ids": [
-      "answer_e5131a1b_abs_1",
-      "answer_e5131a1b_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "982b5123_abs",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/27 (Sat) 17:10",
     "answer": "The information provided is not enough. You only mentioned booking Airbnb in San Francisco.",
-    "evidence_session_ids": [
-      "answer_ab603dd5_abs_1",
-      "answer_ab603dd5_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "c8090214_abs",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/30 (Tue) 05:17",
     "answer": "The information provided is not enough. You mentioned getting the iPhone 13 Pro and attending the market, but you did not mention buying an iPad.",
-    "evidence_session_ids": [
-      "answer_70dc7d08_abs_1",
-      "answer_70dc7d08_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_c27434e8_abs",
     "question_type": "temporal-reasoning",
     "question_time": "2023/05/23 (Tue) 11:26",
     "answer": "The information provided is not enough. You did not mention starting the Porsche 991 Turbo S model.",
-    "evidence_session_ids": [
-      "answer_d8e33f5c_abs_1",
-      "answer_d8e33f5c_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "gpt4_fe651585_abs",
     "question_type": "temporal-reasoning",
     "question_time": "2023/03/17 (Fri) 03:09",
     "answer": "The information provided is not enough. There is no mention of Tom or Alex becoming a parent in any of the conversations available before the question date.",
-    "evidence_session_ids": [
-      "answer_65600ff6_abs_1",
-      "answer_65600ff6_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "6a1eabeb",
@@ -4368,60 +4199,42 @@
     "question_type": "knowledge-update",
     "question_time": "2023/06/15 (Thu) 13:37",
     "answer": "The information provided is not enough. You mentioned trying Korean restaurants but not Italian restaurants.",
-    "evidence_session_ids": [
-      "answer_3f9693b7_abs_1",
-      "answer_3f9693b7_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "031748ae_abs",
     "question_type": "knowledge-update",
     "question_time": "2023/06/06 (Tue) 08:19",
     "answer": "The information provided is not enough. You mentioned starting the role as Senior Software Engineer but not Software Engineer Manager.",
-    "evidence_session_ids": [
-      "answer_8748f791_abs_1",
-      "answer_8748f791_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "2698e78f_abs",
     "question_type": "knowledge-update",
     "question_time": "2023/06/16 (Fri) 16:18",
     "answer": "The information provided is not enough. You mentioned seeing Dr. Smith but not Dr. Johnson.",
-    "evidence_session_ids": [
-      "answer_9282283d_abs_1",
-      "answer_9282283d_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "2133c1b5_abs",
     "question_type": "knowledge-update",
     "question_time": "2023/10/15 (Sun) 10:21",
     "answer": "The information provided is not enough. You mentioned living in Harajuku but not Shinjuku.",
-    "evidence_session_ids": [
-      "answer_52382508_abs_1",
-      "answer_52382508_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "0ddfec37_abs",
     "question_type": "knowledge-update",
     "question_time": "2023/06/07 (Wed) 08:31",
     "answer": "The information provided is not enough. You mentioned collecting autographed baseball but not football.",
-    "evidence_session_ids": [
-      "answer_a22b654d_abs_1",
-      "answer_a22b654d_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "f685340e_abs",
     "question_type": "knowledge-update",
     "question_time": "2023/06/19 (Mon) 04:29",
     "answer": "The information provided is not enough. You mentioned playing tennis but not table tennis.",
-    "evidence_session_ids": [
-      "answer_25df025b_abs_1",
-      "answer_25df025b_abs_2"
-    ]
+    "evidence_session_ids": []
   },
   {
     "question_id": "89941a94",
