@@ -1,19 +1,22 @@
 """Markdown file chunker — frontmatter + wikilink graph + AST tree chunks.
 
-Each chunk carries the **complete heading skeleton** of the document
-with its content inlined under the section that owns it; other sections
-appear as bare headings so the reader always sees a full document map.
+When ``embed_toc`` is enabled, a chunk that starts inside a section carries
+only that section's ancestor heading breadcrumb. Sibling headings remain in
+the document stream and are stored once, avoiding the quadratic growth caused
+by repeating the complete document outline in every chunk.
 
-Pipeline: build mistletoe AST → ``MdNode`` tree (sections nest by
-heading level) → recursive chunk (try whole subtree; on overflow walk
-children — body siblings pack as a run, subsections recurse). Leaf
-blocks (table / code / list / paragraph) split on internal boundaries
-and each piece is annotated ``[Part X/N]``. Wikilink extraction is
+Pipeline: count headings without an AST → use plain-text byte chunks when the
+configured section limit is exceeded; otherwise build a mistletoe AST →
+``MdNode`` tree (sections nest by heading level) → recursively chunk children
+and merge adjacent small subtrees at their parent. Leaf blocks (table / code /
+list / paragraph) split on internal boundaries and each piece is annotated
+``[Part X/N]``. Wikilink extraction is
 delegated to :class:`reme.utils.wikilink_handler.WikilinkHandler` —
 the single source of truth for ``[[...]]`` syntax (including
 Dataview-style typed predicates).
 """
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,7 +25,7 @@ import yaml
 from pydantic import ValidationError
 
 
-from .base_file_chunker import BaseFileChunker
+from .default_file_chunker import DefaultFileChunker
 from ..component_registry import R
 from ...schema import (
     FileChunk,
@@ -33,6 +36,10 @@ from ...utils.wikilink_handler import WikilinkHandler
 
 # -- AST node + helpers ---------------------------------------------------
 
+_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
+_SETEXT_HEADING_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
 
 @dataclass
 class MdNode:
@@ -40,9 +47,7 @@ class MdNode:
     heading) / ``body`` (one mistletoe block; ``block`` keeps the original).
 
     ``text`` is the rendered subtree (own heading excluded for sections).
-    ``desc_toc`` caches the section-only DFS outline of descendants
-    (own heading excluded), used as the TOC suffix when emitting chunks
-    inside a section. Line ranges span the full subtree.
+    Line ranges span the full subtree.
     """
 
     kind: str  # "root" | "section" | "body"
@@ -53,7 +58,6 @@ class MdNode:
     text: str = ""
     start_line: int = 0
     end_line: int = 0
-    desc_toc: str = ""
 
 
 def _heading_text(node: Any, renderer) -> str:
@@ -66,16 +70,13 @@ def _heading_text(node: Any, renderer) -> str:
 
 def _finalize(n: MdNode) -> None:
     """Bottom-up pass: propagate line ranges, populate ``n.text`` (rendered
-    subtree, own heading excluded for sections) and ``n.desc_toc`` (DFS
-    section outline of descendants)."""
+    subtree, own heading excluded for sections)."""
     parts: list[str] = []
-    desc_lines: list[str] = []
     for c in n.children:
         _finalize(c)
         if c.kind == "section":
             heading = f"{'#' * c.level} {c.heading or ''}"
             parts.append(f"{heading}\n\n{c.text}" if c.text else heading)
-            desc_lines.append(f"{heading}\n\n{c.desc_toc}" if c.desc_toc else heading)
         elif c.text:
             parts.append(c.text)
     if n.children:
@@ -86,7 +87,6 @@ def _finalize(n: MdNode) -> None:
         n.end_line = n.start_line
     if n.kind != "body":
         n.text = "\n\n".join(parts)
-    n.desc_toc = "\n\n".join(desc_lines)
 
 
 def _toc_join(*parts: str) -> str:
@@ -94,51 +94,50 @@ def _toc_join(*parts: str) -> str:
     return "\n\n".join(p for p in parts if p)
 
 
-def _subtree_toc(n: MdNode) -> str:
-    """Section's heading + descendants TOC — its contribution to a parent's
-    ``desc_toc``. For root (no own heading) this is just ``desc_toc``."""
-    if n.kind != "section" or n.heading is None:
-        return n.desc_toc
-    heading = f"{'#' * n.level} {n.heading}"
-    return f"{heading}\n\n{n.desc_toc}" if n.desc_toc else heading
-
-
 # -- Chunker --------------------------------------------------------------
 
 
 @R.register("markdown")
-class MarkdownFileChunker(BaseFileChunker):
-    """Markdown chunker: frontmatter + wikilink edges + full-skeleton chunks."""
+class MarkdownFileChunker(DefaultFileChunker):
+    """Markdown chunker with breadcrumb context and adjacent-section packing."""
 
     def __init__(
         self,
         encoding: str = "utf-8",
-        chunk_chars: int = 10000,
+        chunk_byte_size: int = 10000,
         embed_toc: bool = True,
+        max_ast_sections: int | None = 100,
         include_frontmatter_in_metadata: bool = False,
         include_frontmatter_keys_in_metadata: list[str] | None = None,
         **kwargs,
     ):
-        super().__init__(**kwargs)
-        self.encoding = encoding
-        self.chunk_chars = max(100, chunk_chars)
+        super().__init__(encoding=encoding, chunk_byte_size=chunk_byte_size, **kwargs)
         self.embed_toc = embed_toc
+        self.max_ast_sections = max(0, max_ast_sections) if max_ast_sections is not None else None
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
         self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
-        from mistletoe.markdown_renderer import MarkdownRenderer
-        from mistletoe.block_token import Document
-
         file_path = Path(path)
         rel_path = self.to_workspace_relative(path)
         front_matter, content, line_offset = self._parse_front_matter(file_path.read_text(encoding=self.encoding))
 
         chunks: list[FileChunk] = []
         if content and content.strip():
-            with MarkdownRenderer() as renderer:
-                tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
-                chunks = self._chunk_node(tree, "", "", rel_path, renderer)
+            section_count = self._count_sections(content, stop_after=self.max_ast_sections)
+            if self.max_ast_sections is not None and section_count > self.max_ast_sections:
+                self.logger.info(
+                    f"Markdown AST skipped for {rel_path}: sections>{self.max_ast_sections}; "
+                    "using plain-text chunking",
+                )
+                chunks = self._chunk_plain_text(content, rel_path, line_offset)
+            else:
+                from mistletoe.markdown_renderer import MarkdownRenderer
+                from mistletoe.block_token import Document
+
+                with MarkdownRenderer() as renderer:
+                    tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
+                    chunks = self._chunk_node(tree, (), rel_path, renderer)
             if self.include_frontmatter_in_metadata:
                 chunk_metadata = self._chunk_metadata(
                     front_matter,
@@ -157,6 +156,64 @@ class MarkdownFileChunker(BaseFileChunker):
             front_matter=front_matter,
         )
         return node, chunks
+
+    @staticmethod
+    def _count_sections(content: str, stop_after: int | None = None) -> int:
+        """Count block-level ATX/Setext headings without building a Markdown AST.
+
+        Fenced code content is ignored. When ``stop_after`` is set, return as
+        soon as the count exceeds it because the caller only needs to choose
+        between AST and plain-text chunking.
+        """
+        count = 0
+        fence_char = ""
+        fence_length = 0
+        previous_text = False
+
+        line_start = 0
+        while line_start <= len(content):
+            newline = content.find("\n", line_start)
+            if newline < 0:
+                line = content[line_start:]
+            else:
+                line = content[line_start:newline]
+            if line.endswith("\r"):
+                line = line[:-1]
+
+            fence_match = _FENCE_RE.match(line)
+            if fence_match:
+                marker = fence_match.group(1)
+                if not fence_char:
+                    fence_char = marker[0]
+                    fence_length = len(marker)
+                elif marker[0] == fence_char and len(marker) >= fence_length and not line[fence_match.end() :].strip():
+                    fence_char = ""
+                    fence_length = 0
+                previous_text = False
+            elif not fence_char:
+                is_atx = _ATX_HEADING_RE.match(line) is not None
+                is_setext = previous_text and _SETEXT_HEADING_RE.match(line) is not None
+                if is_atx or is_setext:
+                    count += 1
+                    if stop_after is not None and count > stop_after:
+                        return count
+                previous_text = bool(line.strip()) and not is_atx and not is_setext
+
+            if newline < 0:
+                break
+            line_start = newline + 1
+
+        return count
+
+    def _chunk_plain_text(self, content: str, path: str, line_offset: int) -> list[FileChunk]:
+        """Use inherited byte chunking while preserving original Markdown lines."""
+        chunks = self.chunk_content(content, path, parse_links=True)
+        if line_offset:
+            for chunk in chunks:
+                chunk.start_line += line_offset
+                chunk.end_line += line_offset
+                chunk.set_hash_id()
+        return chunks
 
     @staticmethod
     def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str, int]:
@@ -242,144 +299,97 @@ class MarkdownFileChunker(BaseFileChunker):
         _finalize(root)
         return root
 
-    # -- Recursive chunker ------------------------------------------------
+    # -- Recursive subtree chunking --------------------------------------
 
     def _chunk_node(
         self,
         node: MdNode,
-        before: str,
-        after: str,
+        ancestors: tuple[str, ...],
         path: str,
         renderer,
     ) -> list[FileChunk]:
-        """Try the whole subtree; on overflow split (leaf) or descend.
-        ``before``/``after`` are TOC fragments that bracket each emitted
-        chunk's content (chunk text = ``before + content + after``).
-        As we descend, the prefix grows with section headings already
-        passed and the suffix shrinks correspondingly.
+        """Greedily assemble child subtrees, recursing only on oversized ones.
+
+        A fitting subtree is returned immediately. For an oversized container,
+        fitting children are appended directly to a local ``FileChunk`` cache;
+        only an oversized child calls ``_chunk_node`` recursively. A full cache
+        is finalized before assembly continues in document order.
         """
-        if not node.text:
-            return []
+        prefix = _toc_join(*ancestors)
+        heading = ""
+        subtree_text = node.text
         if node.kind == "section":
-            heading_line = f"{'#' * node.level} {node.heading or ''}"
-            before_self = _toc_join(before, heading_line)
-        else:
-            before_self = before
-        if len(node.text) <= self.chunk_chars:
+            heading = f"{'#' * node.level} {node.heading or ''}"
+            subtree_text = _toc_join(heading, node.text)
+
+        if subtree_text and self._byte_len(self._compose_text(prefix, subtree_text)) <= self.chunk_byte_size:
             return [
                 self._make_chunk(
-                    before_self,
-                    node.text,
-                    after,
+                    prefix,
+                    subtree_text,
                     node.start_line,
                     node.end_line,
                     path,
                 ),
             ]
+
         if node.kind == "body":
-            return self._split_leaf(node, before, after, path, renderer)
-        after_inside = _toc_join(node.desc_toc, after)
-        sub_tocs = [_subtree_toc(c) for c in node.children if c.kind == "section"]
-        chunks: list[FileChunk] = []
-        accumulated = before_self
-        sec_idx = 0
-        run: list[MdNode] = []
-        for c in node.children:
-            if c.kind == "section":
-                if run:
-                    chunks.extend(
-                        self._chunk_body_run(
-                            run,
-                            before_self,
-                            after_inside,
-                            path,
-                            renderer,
-                        ),
-                    )
-                    run = []
-                remaining = "\n\n".join(sub_tocs[sec_idx + 1 :])
-                chunks.extend(
-                    self._chunk_node(
-                        c,
-                        accumulated,
-                        _toc_join(remaining, after),
-                        path,
-                        renderer,
-                    ),
-                )
-                accumulated = _toc_join(accumulated, sub_tocs[sec_idx])
-                sec_idx += 1
-            else:
-                run.append(c)
-        if run:
-            chunks.extend(
-                self._chunk_body_run(
-                    run,
-                    before_self,
-                    after_inside,
-                    path,
-                    renderer,
-                ),
-            )
-        return chunks
+            return self._split_leaf(node, prefix, path, renderer)
 
-    def _chunk_body_run(
-        self,
-        run: list[MdNode],
-        before: str,
-        after: str,
-        path: str,
-        renderer,
-    ) -> list[FileChunk]:
-        """Greedy-pack consecutive body siblings under the same TOC slot.
-        No ``[Part X/N]`` markers — distinct blocks, not a leaf split.
-        Oversized single body recurses to ``_split_leaf``."""
-        composite_size = sum(len(b.text) for b in run) + 2 * max(0, len(run) - 1)
-        if composite_size <= self.chunk_chars:
-            return [
-                self._make_chunk(
-                    before,
-                    "\n\n".join(b.text for b in run),
-                    after,
-                    run[0].start_line,
-                    run[-1].end_line,
-                    path,
-                ),
-            ]
+        child_ancestors = ancestors
+        if node.kind == "section":
+            child_ancestors = (*ancestors, heading)
 
         chunks: list[FileChunk] = []
-        bucket: list[MdNode] = []
-        bucket_chars = 0
+        cache: FileChunk | None = None
+        child_prefix = _toc_join(*child_ancestors)
 
-        def flush() -> None:
-            nonlocal bucket, bucket_chars
-            if not bucket:
+        def flush_cache() -> None:
+            nonlocal cache
+            if cache is None:
                 return
-            chunks.append(
-                self._make_chunk(
-                    before,
-                    "\n\n".join(b.text for b in bucket),
-                    after,
-                    bucket[0].start_line,
-                    bucket[-1].end_line,
-                    path,
-                ),
-            )
-            bucket = []
-            bucket_chars = 0
+            chunks.append(cache.set_hash_id())
+            cache = None
 
-        for body in run:
-            if len(body.text) > self.chunk_chars:
-                flush()
-                chunks.extend(self._split_leaf(body, before, after, path, renderer))
+        def append_to_cache(text: str, start_line: int, end_line: int, new_prefix: str) -> None:
+            nonlocal cache
+            if not text:
+                return
+            if cache is not None:
+                candidate = _toc_join(cache.text, text)
+                candidate_size = self._byte_len(candidate)
+                if candidate_size <= self.chunk_byte_size:
+                    cache.text = candidate
+                    cache.end_line = end_line
+                    if candidate_size == self.chunk_byte_size:
+                        flush_cache()
+                    return
+                flush_cache()
+
+            cache_text = self._compose_text(new_prefix, text)
+            cache = FileChunk(
+                path=path,
+                start_line=start_line,
+                end_line=end_line,
+                text=cache_text,
+            )
+            if self._byte_len(cache_text) >= self.chunk_byte_size:
+                flush_cache()
+
+        if heading:
+            append_to_cache(heading, node.start_line, node.start_line, prefix)
+
+        for child in node.children:
+            child_heading = f"{'#' * child.level} {child.heading or ''}" if child.kind == "section" else ""
+            child_text = _toc_join(child_heading, child.text) if child_heading else child.text
+            if self._byte_len(child_text) <= self.chunk_byte_size:
+                append_to_cache(child_text, child.start_line, child.end_line, child_prefix)
                 continue
-            sep = 2 if bucket else 0
-            if bucket_chars + sep + len(body.text) > self.chunk_chars:
-                flush()
-                sep = 0
-            bucket.append(body)
-            bucket_chars += sep + len(body.text)
-        flush()
+
+            flush_cache()
+            chunks.extend(self._chunk_node(child, child_ancestors, path, renderer))
+
+        flush_cache()
         return chunks
 
     # -- Leaf splitters: build (text, start, end) units, hand off to packer
@@ -387,8 +397,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_leaf(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         renderer,
     ) -> list[FileChunk]:
@@ -400,18 +409,17 @@ class MarkdownFileChunker(BaseFileChunker):
 
         block = body.block
         if isinstance(block, Table):
-            return self._split_table(body, before, after, path)
+            return self._split_table(body, breadcrumb, path)
         if isinstance(block, CodeFence):
-            return self._split_code(body, before, after, path)
+            return self._split_code(body, breadcrumb, path)
         if isinstance(block, List):
-            return self._split_list(body, before, after, path, renderer)
-        return self._split_lines(body, before, after, path)
+            return self._split_list(body, breadcrumb, path, renderer)
+        return self._split_lines(body, breadcrumb, path)
 
     def _split_table(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Repeat header + separator on every chunk."""
@@ -429,8 +437,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(text, line_of(i), line_of(i)) for i, text in enumerate(data)]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap=f"{header}\n{{inner}}",
@@ -439,8 +446,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_code(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Repeat fence opener + closer on every chunk."""
@@ -455,8 +461,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(indent + ln, start + i, start + i) for i, ln in enumerate(raw.split("\n"))]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap=f"{opener}\n{{inner}}\n{fence}",
@@ -466,8 +471,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_list(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         renderer,
     ) -> list[FileChunk]:
@@ -476,7 +480,7 @@ class MarkdownFileChunker(BaseFileChunker):
 
         items = [c for c in (body.block.children or []) if isinstance(c, ListItem)]
         if not items:
-            return self._split_lines(body, before, after, path)
+            return self._split_lines(body, breadcrumb, path)
         units: list[tuple[str, int, int]] = []
         line_offset = body.start_line - (getattr(body.block, "line_number", None) or body.start_line)
         for it in items:
@@ -487,8 +491,7 @@ class MarkdownFileChunker(BaseFileChunker):
             units.append((text, line, line + text.count("\n")))
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap="{inner}",
@@ -497,8 +500,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _split_lines(
         self,
         body: MdNode,
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
     ) -> list[FileChunk]:
         """Last-resort line-greedy split for paragraphs / quotes / html."""
@@ -506,8 +508,7 @@ class MarkdownFileChunker(BaseFileChunker):
         units = [(line, start + i, start + i) for i, line in enumerate(body.text.split("\n"))]
         return self._emit_packed(
             units,
-            before,
-            after,
+            breadcrumb,
             path,
             joiner="\n",
             wrap="{inner}",
@@ -516,8 +517,7 @@ class MarkdownFileChunker(BaseFileChunker):
     def _emit_packed(
         self,
         units: list[tuple[str, int, int]],
-        before: str,
-        after: str,
+        breadcrumb: str,
         path: str,
         joiner: str,
         wrap: str,
@@ -525,49 +525,52 @@ class MarkdownFileChunker(BaseFileChunker):
     ) -> list[FileChunk]:
         """Greedy-pack units into ``wrap`` envelopes; emit each piece.
 
-        Envelope (table header, code fence) counts against ``chunk_chars``;
-        TOC (when on) is additive prefix/suffix downstream. Oversized
-        units overflow rather than truncate. Multi-piece outputs get
-        ``[Part X/N]`` markers; single pieces don't.
+        Envelope (table header, code fence), breadcrumb, separators and the
+        largest possible ``[Part X/N]`` marker all count against
+        ``chunk_byte_size``. Oversized atomic units overflow rather than
+        truncate. Multi-piece outputs get part markers; single pieces don't.
         """
-        envelope = len(wrap.replace("{inner}", ""))
-        budget = max(64, self.chunk_chars - envelope)
-        sep_len = len(joiner)
+        envelope = self._byte_len(wrap.replace("{inner}", ""))
+        breadcrumb_overhead = self._breadcrumb_overhead(breadcrumb)
+        part_marker = len(units) > 1
+        marker_overhead = self._byte_len(f"[Part {len(units)}/{len(units)}]\n\n") if part_marker else 0
+        budget = self.chunk_byte_size - envelope - breadcrumb_overhead - marker_overhead
+        sep_len = self._byte_len(joiner)
 
         parts: list[tuple[str, int, int]] = []
         bucket: list[tuple[str, int, int]] = []
-        bucket_chars = 0
+        bucket_bytes = 0
 
         def flush() -> None:
-            nonlocal bucket, bucket_chars
+            nonlocal bucket, bucket_bytes
             if not bucket:
                 return
             inner = joiner.join(t for t, _, _ in bucket)
             parts.append((inner, bucket[0][1], bucket[-1][2]))
             bucket = []
-            bucket_chars = 0
+            bucket_bytes = 0
 
         for text, s, e in units:
             if not text and not allow_empty:
                 continue
             sep = sep_len if bucket else 0
-            if bucket_chars + sep + len(text) > budget:
+            text_size = self._byte_len(text)
+            if bucket_bytes + sep + text_size > budget:
                 flush()
                 sep = 0
             bucket.append((text, s, e))
-            bucket_chars += sep + len(text)
+            bucket_bytes += sep + text_size
         flush()
 
         total = len(parts)
         return [
             self._make_chunk(
-                before,
+                breadcrumb,
                 (
                     f"[Part {idx}/{total}]\n\n{wrap.replace('{inner}', inner)}"
                     if total > 1
                     else wrap.replace("{inner}", inner)
                 ),
-                after,
                 s,
                 e,
                 path,
@@ -579,19 +582,47 @@ class MarkdownFileChunker(BaseFileChunker):
 
     def _make_chunk(
         self,
-        before: str,
+        breadcrumb: str,
         content: str,
-        after: str,
         start_line: int,
         end_line: int,
         path: str,
     ) -> FileChunk:
-        """Build one ``FileChunk`` — text is ``before + content + after``
-        when ``embed_toc``, otherwise just ``content``."""
-        text = _toc_join(before, content, after) if self.embed_toc else content
+        """Build one chunk with an optional ancestor-heading breadcrumb."""
+        text = self._compose_text(breadcrumb, content)
         return FileChunk(
             path=path,
             start_line=start_line,
             end_line=end_line,
             text=text,
         ).set_hash_id()
+
+    def _breadcrumb_overhead(self, breadcrumb: str) -> int:
+        """Return the breadcrumb and separator cost before one content string."""
+        if not self.embed_toc or not breadcrumb:
+            return 0
+        return self._byte_len(_toc_join(breadcrumb, "x")) - 1
+
+    def _compose_text(self, breadcrumb: str, content: str) -> str:
+        """Compose a chunk and trim breadcrumbs when they consume its budget."""
+        if not self.embed_toc or not breadcrumb:
+            return content
+        full = _toc_join(breadcrumb, content)
+        if self._byte_len(full) <= self.chunk_byte_size:
+            return full
+
+        available = self.chunk_byte_size - self._byte_len(content) - 2
+        if available <= 0:
+            return content
+
+        breadcrumb_parts = breadcrumb.split("\n\n")
+        for start in range(len(breadcrumb_parts)):
+            retained = "\n\n".join(breadcrumb_parts[start:])
+            candidate = _toc_join(retained, content)
+            if self._byte_len(candidate) <= self.chunk_byte_size:
+                return candidate
+        return content
+
+    def _byte_len(self, text: str) -> int:
+        """Return encoded size used by the shared byte chunking contract."""
+        return len(text.encode(self.encoding))
