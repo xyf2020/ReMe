@@ -285,7 +285,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,
-        )  # tools存储FunctionTool类型的对象
+        )
 
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
