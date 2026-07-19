@@ -70,3 +70,6 @@ datasets/BEAM/
 # Benchmark outputs
 benchmark/results/*
 !benchmark/results/.gitkeep
+
+# integration tests outputs
+tests/integration/logs/
