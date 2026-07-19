@@ -7,7 +7,7 @@ the average across all rubric items.
 For ``event_ordering`` questions, additionally computes:
   - LLM-based event alignment (matching system events to reference events)
   - precision / recall / f1 (set-intersection after alignment)
-  - Kendall's tau (ordering correlation, via scipy)
+  - Kendall's tau (ordering correlation, pure numpy implementation)
   - final_score = tau_norm * f1
 
 A ``semantic`` alignment path is also available which uses ReMe's
@@ -23,7 +23,6 @@ from typing import List, Tuple
 
 import numpy as np
 from json_repair import repair_json
-from scipy.stats import kendalltau
 
 from ...base_step import BaseStep, Ref
 from ....components import R
@@ -152,6 +151,46 @@ async def _semantic_align(
     return reference, system_canon
 
 
+def _kendall_tau_b(x: list, y: list) -> float:
+    """Compute Kendall's tau-b rank correlation using only numpy.
+
+    Replicates ``scipy.stats.kendalltau(x, y, variant='b')`` for the
+    rank-based inputs used in event ordering scoring.
+    """
+    x_arr = np.asarray(x, dtype=float)
+    y_arr = np.asarray(y, dtype=float)
+    n = len(x_arr)
+    if n < 2:
+        return 0.0
+
+    concordant = 0
+    discordant = 0
+    x_ties = 0
+    y_ties = 0
+
+    for i in range(n - 1):
+        for j in range(i + 1, n):
+            dx = x_arr[j] - x_arr[i]
+            dy = y_arr[j] - y_arr[i]
+            if dx == 0 and dy == 0:
+                x_ties += 1
+                y_ties += 1
+            elif dx == 0:
+                x_ties += 1
+            elif dy == 0:
+                y_ties += 1
+            elif (dx > 0) == (dy > 0):
+                concordant += 1
+            else:
+                discordant += 1
+
+    n0 = n * (n - 1) / 2
+    denom = np.sqrt((n0 - x_ties) * (n0 - y_ties))
+    if denom == 0:
+        return 0.0
+    return (concordant - discordant) / denom
+
+
 def _event_ordering_score(
     reference_canon: List[str],
     system_canon: List[str],
@@ -176,11 +215,9 @@ def _event_ordering_score(
         r = {item: i + 1 for i, item in enumerate(seq)}
         return [r.get(u, tie_rank) for u in union]
 
-    tau_b, _ = kendalltau(
+    tau_b = _kendall_tau_b(
         to_rank(reference_canon),
         to_rank(system_canon),
-        variant="b",
-        method="auto",
     )
     tau_b_norm = (tau_b + 1) / 2 if tau_b is not None else 0
 
