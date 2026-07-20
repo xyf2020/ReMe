@@ -60,6 +60,6 @@ def _progress(block_num, block_size, total_size):
 
 if __name__ == "__main__":
     print(f"Downloading LongMemEval cleaned-S dataset to: {TARGET_DIR}\n")
-    for filename in FILES:
-        download_file(filename)
+    for fname in FILES:
+        download_file(fname)
     print("\nAll files downloaded successfully!")
