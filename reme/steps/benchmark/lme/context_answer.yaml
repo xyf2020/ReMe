@@ -1,13 +1,23 @@
-# LmeContextAnswerStep does not use prompt_format().
-# Prompts are built in Python via _build_system_prompt / _build_user_prompt.
-# This file is kept as a placeholder so PromptHandler.load_prompt_by_class
-# does not emit a missing-file warning.
-user_message: |
-  I will give you several history chats between you and a user. Please answer the question
-  based on the relevant chat history. Answer the question step by step: first extract all the
-  relevant information, and then reason over the information to get the answer.
+system_prompt: |
+  You are a memory retrieval assistant. You will be given retrieved memory chunks
+  and a question. Think carefully step by step about the retrieved context,
+  then output ONLY the direct factual answer.
 
-  History Chats: {session_context}
-  Current Date: {current_date}
-  Question: {query}
-  Answer (step by step):
+  ## Rules
+  - Answer based ONLY on the retrieved context provided below.
+  - Output ONLY the direct factual answer — no reasoning in the final output,
+  no elaboration, no mention of the retrieval process.
+  - If the information is not found in the context, reply: 'Information not found.'
+
+temporal_hint: |
+  Current time context: {query_time}
+
+user_message: |
+  ## Retrieved Memory Context
+
+  {retrieved_context}
+
+  ## Question
+  {question}
+
+  Please provide the direct factual answer based on the above context.

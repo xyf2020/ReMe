@@ -43,8 +43,10 @@ class LmeContextAnswerStep(BaseStep):
             raise RuntimeError("lme_context_answer_step requires as_llm component")
 
         # ── Build messages ──
-        system_text = self._build_system_prompt(query_time)
-        user_text = self._build_user_prompt(retrieved_context, question)
+        system_text = self.prompt_format("system_prompt")
+        if query_time:
+            system_text += "\n\n" + self.prompt_format("temporal_hint", query_time=query_time)
+        user_text = self.prompt_format("user_message", retrieved_context=retrieved_context, question=question)
 
         messages = [
             Msg(name="system", role="system", content=[{"type": "text", "text": system_text}]),
@@ -78,36 +80,10 @@ class LmeContextAnswerStep(BaseStep):
             {
                 "question": question,
                 "query_time": query_time,
-                "retrieved_context_preview": retrieved_context[:500],
+                "retrieved_context_preview": retrieved_context,
                 "search_hit_count": search_hit_count,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             },
         )
         return self.context.response
-
-    # ── Prompt builders ───────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_system_prompt(query_time: str) -> str:
-        system_text = (
-            "You are a memory retrieval assistant. You will be given retrieved memory chunks "
-            "and a question. Think carefully step by step about the retrieved context, "
-            "then output ONLY the direct factual answer.\n\n"
-            "## Rules\n"
-            "- Answer based ONLY on the retrieved context provided below.\n"
-            "- Output ONLY the direct factual answer — no reasoning in the final output, "
-            "no elaboration, no mention of the retrieval process.\n"
-            "- If the information is not found in the context, reply: 'Information not found.'"
-        )
-        if query_time:
-            system_text += f"\n\nCurrent time context: {query_time}\n"
-        return system_text
-
-    @staticmethod
-    def _build_user_prompt(retrieved_context: str, question: str) -> str:
-        return (
-            f"## Retrieved Memory Context\n\n{retrieved_context}\n\n"
-            f"## Question\n{question}\n\n"
-            f"Please provide the direct factual answer based on the above context."
-        )

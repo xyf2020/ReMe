@@ -79,33 +79,14 @@
 
 | Category | Total | Agentic | Prompted limit=15 |
 |---|---|---|---|
-| single-session-assistant | 56 | 56/56 (100.0%) | 56/56 (100.0%) |
-| single-session-user | 70 | 66/70 (94.3%) | 64/70 (91.4%) |
-| knowledge-update | 78 | 73/78 (93.6%) | 68/78 (87.2%) |
-| temporal-reasoning | 133 | 123/133 (92.5%) | 121/133 (91.0%) |
-| multi-session | 133 | 111/133 (83.5%) | 102/133 (76.7%) |
-| single-session-preference | 30 | 16/30 (53.3%) | 7/30 (23.3%) |
-| **Overall** | **500** | **445/500 (89.0%)** | **418/500 (83.6%)** |
+| single-session-assistant | 56 | 56/56 (100.0%) | 54/56 (96.4%) |
+| single-session-user | 70 | 66/70 (94.3%) | 62/70 (88.6%) |
+| knowledge-update | 78 | 75/78 (96.2%) | 67/78 (85.9%) |
+| temporal-reasoning | 133 | 122/133 (91.7%) | 117/133 (88.0%) |
+| multi-session | 133 | 115/133 (86.5%) | 101/133 (75.9%) |
+| single-session-preference | 30 | 21/30 (70.0%) | 10/30 (33.3%) |
+| **Overall** | **500** | **455/500 (91.0%)** | **411/500 (82.2%)** |
 
-Prompted token 消耗：总 input 13,109,924 (平均 26,220/题)，总 output 316,327 (平均 633/题)。
+Prompted token 消耗：总 input 13,111,421 (平均 26,275/题)，总 output 313,370 (平均 628/题)。
 平均 sessions_ingested: 44.8，dreams_triggered: 0。
 
-
-
-
-
-
-现在的进展：
-1. 初步修复了longmemeval，大约有56（11.2%）个case与原始不一致；答案为unknown的case从29(3.8%)增加到了67(13.4%)。temporal reasoning类型受影响最大。
-2. 使用新的groundtruth测评，agentic和prompted分别提升到了88.8%和86.4%
-3. 引入去重功能可以给agentic方法带来+1%的提升；日期过滤带来1.2%的提升；目前draft和python功能暂无提升
-发现的问题：
-1. 现在的架构难以处理计数类问题，auto-memory和原始session会导致统计重复
-2. 容易被错误的auto-memory误导，原始session非常重要，longmemeval的推理难度并不低
-
-TODO
-1. grudntruth 还有些问题
-2. 尝试新的架构，auto-memory功能改成构摘要，给LLM提供工具，通过auto-memory摘要读取链接到的原始session
-
-
-现在还有8个分歧：37f165cf, dd2973ad, 09ba9854, gpt4_2f8be40d, bf659f65, 7405e8b1, 9ee3ecd6, 8550ddae

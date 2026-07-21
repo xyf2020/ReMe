@@ -41,7 +41,7 @@ class BeamContextAnswerStep(BaseStep):
         self.context.response.metadata.update(
             {
                 "question": question,
-                "retrieved_context_preview": retrieved_context[:500],
+                "retrieved_context_preview": retrieved_context,
                 "answer": answer,
             },
         )
