@@ -11,7 +11,6 @@ dataset:
 
 evaluation:
   num_workers: 18                       # 0 = auto; 1 = sequential; >1 = parallel (per-case)
-  modes: ["prompted", "agentic"]        # answer modes to run
 
 reme:
   config: "beam.yaml"                   # reme config (in reme/config/)

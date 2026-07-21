@@ -8,8 +8,8 @@ Reproduction guide for the two memory benchmarks shipped with ReMe:
 - **BEAM** — memory capability over long-context chat cases with rubric-based judging.
 
 Each benchmark runs its own end-to-end pipeline: ingest sessions into an isolated
-per-item workspace, answer probing questions via both prompted (search + LLM) and
-agentic (ReAct) modes, then score answers with an LLM-as-judge.
+per-item workspace, answer probing questions via an agentic (ReAct) mode,
+then score answers with an LLM-as-judge.
 
 ## 1. Prerequisites
 
@@ -68,8 +68,8 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 1. Load the dataset (ground truth is embedded in the data file).
 2. For each item, create an isolated workspace and ingest sessions in chronological order.
 3. Trigger `auto_dream` when consecutive sessions cross the configured hour (default 23:00).
-4. Answer each question in two modes — agentic (ReAct) and prompted (search + LLM).
-5. Judge both answers (binary yes/no) with the `answer_judge` job and print per-type accuracy.
+4. Answer each question via agentic (ReAct) mode.
+5. Judge the answer (binary yes/no) with the `answer_judge` job and print per-type accuracy.
 
 ### Key config — `benchmark/longmemeval/config.yaml`
 
@@ -100,7 +100,7 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 
 1. For each case, load `chat.json` and convert each batch into a ReMe session.
 2. Ingest sessions in chronological order into an isolated workspace, then `digest_update`.
-3. Answer each probing question in the configured `modes` (prompted / agentic).
+3. Answer each probing question via agentic (ReAct) mode.
 4. Score answers with BEAM's rubric-based `answer_judge` job and print per-type averages.
 
 ### Key config — `benchmark/beam/config.yaml`
@@ -113,7 +113,6 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 | `dataset.start_index` / `num_items` | Case pagination (`num_items` `0` = all). |
 | `dataset.workspace_root` | Per-case workspace root (`benchmark/memory_workspaces/beam`). |
 | `evaluation.num_workers` | `0` = auto, `1` = sequential, `>1` = parallel. |
-| `evaluation.modes` | Answer modes to run: `prompted` and/or `agentic`. |
 | `reme.config` | ReMe config used (`beam.yaml`). |
 | `output.dir` | Results directory (`benchmark/results/beam`). |
 

@@ -3,7 +3,7 @@
 Evaluates ReMe's memory capability using the BEAM dataset.
 Each case gets an isolated workspace; chat.json batches are ingested as
 sessions in chronological order; finally probing questions are answered
-via both prompted (search + LLM) and agentic (ReAct) approaches, then
+via an agentic (ReAct) approach, then
 judged by BEAM's rubric-based LLM-as-judge.
 
 Usage:
@@ -247,34 +247,6 @@ def get_available_cases(beam_root: Path, chat_size: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # Answer generation
 # ---------------------------------------------------------------------------
-async def answer_question_prompted(app, question: str) -> tuple[str, dict]:
-    """Answer a probing question using ReMe search + context_answer job.
-
-    Returns (answer, metadata)
-    """
-    # Search ReMe memory
-    search_resp = await app.run_job("search", query=question, limit=15)
-    search_context = (search_resp.answer or "").strip()
-    search_hit_count = (search_resp.metadata or {}).get("counts", {}).get("returned", 0)
-    logger.info(f"  Search: {search_hit_count} hits")
-
-    if not search_context:
-        search_context = "(no search results found)"
-
-    # Generate answer via context_answer job (BEAM original prompt)
-    answer_resp = await app.run_job(
-        "context_answer",
-        retrieved_context=search_context,
-        question=question,
-    )
-    answer = (answer_resp.answer or "").strip()
-
-    return answer, {
-        "search_hits": search_hit_count,
-        "search_context_preview": search_context[:300],
-    }
-
-
 async def answer_question_agentic(app, question: str) -> tuple[str, dict]:
     """Answer a probing question using ReMe's agentic_answer job.
 
@@ -339,8 +311,6 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
     beam_root = _PROJECT_ROOT / dataset_cfg.get("beam_root", "benchmark/datasets/BEAM")
-    modes = eval_config["evaluation"].get("modes", ["prompted", "agentic"])
-
     chat_path = beam_root / "chats" / chat_size / case_id / "chat.json"
     probing_questions_path = beam_root / "chats" / chat_size / case_id / "probing_questions" / "probing_questions.json"
 
@@ -350,10 +320,9 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         raise FileNotFoundError(f"Probing questions not found: {probing_questions_path}")
 
     logger.info(
-        "[Case %s] size=%s modes=%s%s",
+        "[Case %s] size=%s%s",
         case_id,
         chat_size,
-        modes,
         " [eval_only]" if eval_only else "",
     )
 
@@ -364,15 +333,10 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
     if eval_only:
         if not case_dir.exists() or not Path(workspace_dir).exists():
-            logger.warning(
-                f"[Case {case_id}] eval_only: workspace not found at {case_dir}, skipping",
+            raise FileNotFoundError(
+                f"[Case {case_id}] eval_only: workspace not found at {case_dir}. "
+                f"Run without --eval_only first to build the workspace.",
             )
-            return {
-                "case_id": case_id,
-                "chat_size": chat_size,
-                "error": "workspace missing in eval_only mode",
-                "questions": [],
-            }
     else:
         if case_dir.exists():
             shutil.rmtree(case_dir)
@@ -470,71 +434,37 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                     "rubric": rubric,
                 }
 
-                # Prompted answer
-                if "prompted" in modes:
-                    try:
-                        prompted_answer, prompted_meta = await answer_question_prompted(
-                            app,
-                            question,
-                        )
-                    except Exception as e:
-                        logger.error(f"[Case {case_id}] Prompted answer failed: {e}")
-                        prompted_answer = f"(error: {e})"
-                        prompted_meta = {"error": str(e)}
-
-                    if not prompted_answer:
-                        prompted_answer = "(no answer generated)"
-                    logger.info(f"[Case {case_id}] Prompted answer: {prompted_answer[:200]}...")
-
-                    # Judge prompted answer
-                    logger.info(f"[Case {case_id}] Judging prompted ({q_type})...")
-                    prompted_judgment = await judge_answer(
-                        app,
-                        question,
-                        prompted_answer,
-                        rubric,
-                        question_type=q_type,
-                    )
-                    logger.info(
-                        f"[Case {case_id}] Prompted score: " f"{prompted_judgment['llm_judge_score']:.3f}",
-                    )
-
-                    q_result["prompted_response"] = prompted_answer
-                    q_result["prompted_judgment"] = prompted_judgment
-                    q_result["prompted_metadata"] = prompted_meta
-
                 # Agentic answer
-                if "agentic" in modes:
-                    try:
-                        agentic_answer, agentic_meta = await answer_question_agentic(
-                            app,
-                            question,
-                        )
-                    except Exception as e:
-                        logger.error(f"[Case {case_id}] Agentic answer failed: {e}")
-                        agentic_answer = f"(error: {e})"
-                        agentic_meta = {"error": str(e)}
-
-                    if not agentic_answer:
-                        agentic_answer = "(no answer generated)"
-                    logger.info(f"[Case {case_id}] Agentic answer: {agentic_answer[:200]}...")
-
-                    # Judge agentic answer
-                    logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
-                    agentic_judgment = await judge_answer(
+                try:
+                    agentic_answer, agentic_meta = await answer_question_agentic(
                         app,
                         question,
-                        agentic_answer,
-                        rubric,
-                        question_type=q_type,
                     )
-                    logger.info(
-                        f"[Case {case_id}] Agentic score: " f"{agentic_judgment['llm_judge_score']:.3f}",
-                    )
+                except Exception as e:
+                    logger.error(f"[Case {case_id}] Agentic answer failed: {e}")
+                    agentic_answer = f"(error: {e})"
+                    agentic_meta = {"error": str(e)}
 
-                    q_result["agentic_response"] = agentic_answer
-                    q_result["agentic_judgment"] = agentic_judgment
-                    q_result["agentic_metadata"] = agentic_meta
+                if not agentic_answer:
+                    agentic_answer = "(no answer generated)"
+                logger.info(f"[Case {case_id}] Agentic answer: {agentic_answer[:200]}...")
+
+                # Judge agentic answer
+                logger.info(f"[Case {case_id}] Judging agentic ({q_type})...")
+                agentic_judgment = await judge_answer(
+                    app,
+                    question,
+                    agentic_answer,
+                    rubric,
+                    question_type=q_type,
+                )
+                logger.info(
+                    f"[Case {case_id}] Agentic score: " f"{agentic_judgment['llm_judge_score']:.3f}",
+                )
+
+                q_result["agentic_response"] = agentic_answer
+                q_result["agentic_judgment"] = agentic_judgment
+                q_result["agentic_metadata"] = agentic_meta
 
                 all_question_results.append(q_result)
 
@@ -646,8 +576,28 @@ def main(  # pylint: disable=too-many-statements
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/beam")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create workspace root directory
+    workspace_root = _PROJECT_ROOT / dataset_cfg.get("workspace_root", _WORKSPACE_ROOT_DEFAULT)
+    workspace_root.mkdir(parents=True, exist_ok=True)
+
+    # Pre-check: verify all workspaces exist in eval_only mode
+    if eval_only:
+        missing_cases = []
+        for case_id in case_ids:
+            case_dir = workspace_root / f"{chat_size}_{case_id}"
+            if not case_dir.exists() or not (case_dir / ".reme").exists():
+                missing_cases.append(case_id)
+        if missing_cases:
+            preview = missing_cases[:10]
+            suffix = "..." if len(missing_cases) > 10 else ""
+            raise FileNotFoundError(
+                f"eval_only: {len(missing_cases)} workspace(s) not found under {workspace_root}. "
+                f"Missing cases: {preview}{suffix}. "
+                f"Run without --eval_only first to build the workspaces.",
+            )
 
     # Build task args
     task_args = [(eval_config, case_id, log_level, reme_log_level, eval_only, log_dir_abs) for case_id in case_ids]
@@ -723,53 +673,48 @@ def main(  # pylint: disable=too-many-statements
     print(f"  BEAM EVALUATION RESULTS  |  size={chat_size}  cases={len(results)}")
     print("=" * 70)
 
-    modes = eval_config["evaluation"].get("modes", ["prompted", "agentic"])
+    # Per-type stats (agentic only)
+    type_scores: dict[str, list[float]] = {}
+    type_binary_scores: dict[str, list[float]] = {}
+    all_scores: list[float] = []
+    all_binary_scores: list[float] = []
 
-    for mode in modes:
-        mode_key = f"{mode}_judgment"
+    for case_result in results:
+        if "error" in case_result:
+            continue
+        for q in case_result.get("questions", []):
+            judgment = q.get("agentic_judgment", {})
+            score = judgment.get("llm_judge_score", 0.0)
+            # Binary: convert each rubric item score to 0/1, then average
+            judge_responses = judgment.get("llm_judge_responses", [])
+            if judge_responses:
+                binary_scores_per_item = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
+                binary_score = sum(binary_scores_per_item) / len(binary_scores_per_item)
+            else:
+                binary_score = 1.0 if score > 0.99 else 0.0
+            qtype = q["question_type"]
+            if qtype not in type_scores:
+                type_scores[qtype] = []
+                type_binary_scores[qtype] = []
+            type_scores[qtype].append(score)
+            type_binary_scores[qtype].append(binary_score)
+            all_scores.append(score)
+            all_binary_scores.append(binary_score)
 
-        # Per-type stats
-        type_scores: dict[str, list[float]] = {}
-        type_binary_scores: dict[str, list[float]] = {}
-        all_scores: list[float] = []
-        all_binary_scores: list[float] = []
-
-        for case_result in results:
-            if "error" in case_result:
-                continue
-            for q in case_result.get("questions", []):
-                judgment = q.get(mode_key, {})
-                score = judgment.get("llm_judge_score", 0.0)
-                # Binary: convert each rubric item score to 0/1, then average
-                judge_responses = judgment.get("llm_judge_responses", [])
-                if judge_responses:
-                    binary_scores_per_item = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
-                    binary_score = sum(binary_scores_per_item) / len(binary_scores_per_item)
-                else:
-                    binary_score = 1.0 if score > 0.99 else 0.0
-                qtype = q["question_type"]
-                if qtype not in type_scores:
-                    type_scores[qtype] = []
-                    type_binary_scores[qtype] = []
-                type_scores[qtype].append(score)
-                type_binary_scores[qtype].append(binary_score)
-                all_scores.append(score)
-                all_binary_scores.append(binary_score)
-
-        print(f"\n  ── {mode.upper()} ──")
-        if all_scores:
-            for qtype in sorted(type_scores.keys()):
-                scores = type_scores[qtype]
-                avg = sum(scores) / len(scores) if scores else 0
-                bin_scores = type_binary_scores[qtype]
-                bin_avg = sum(bin_scores) / len(bin_scores) if bin_scores else 0
-                print(f"    {qtype:<40s}: {avg:.3f}  binary={bin_avg:.3f}  ({len(scores)} Qs)")
-            overall = sum(all_scores) / len(all_scores) if all_scores else 0
-            binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
-            print(f"    {'-'*38}")
-            print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
-        else:
-            print("    (no results)")
+    print("\n  ── AGENTIC ──")
+    if all_scores:
+        for qtype in sorted(type_scores.keys()):
+            scores = type_scores[qtype]
+            avg = sum(scores) / len(scores) if scores else 0
+            bin_scores = type_binary_scores[qtype]
+            bin_avg = sum(bin_scores) / len(bin_scores) if bin_scores else 0
+            print(f"    {qtype:<40s}: {avg:.3f}  binary={bin_avg:.3f}  ({len(scores)} Qs)")
+        overall = sum(all_scores) / len(all_scores) if all_scores else 0
+        binary_overall = sum(all_binary_scores) / len(all_binary_scores) if all_binary_scores else 0
+        print(f"    {'-'*38}")
+        print(f"    {'OVERALL':<40s}: {overall:.3f}  binary={binary_overall:.3f}  ({len(all_scores)} Qs)")
+    else:
+        print("    (no results)")
 
     # Per-case summary
     print("\n  ── Per-Case Summary ──")
@@ -781,24 +726,22 @@ def main(  # pylint: disable=too-many-statements
         n_qs = case_result.get("total_questions", 0)
         n_sessions = case_result.get("sessions_ingested", 0)
         parts = [f"Case {case_id}: {n_sessions} sessions, {n_qs} questions"]
-        for mode in modes:
-            mode_key = f"{mode}_judgment"
-            questions = case_result.get("questions", [])
-            scores = [q.get(mode_key, {}).get("llm_judge_score", 0.0) for q in questions]
-            if scores:
-                avg = sum(scores) / len(scores)
-                # Binary: 0/1 per rubric item, average per question, then across questions
-                bin_scores = []
-                for q in questions:
-                    judge_responses = q.get(mode_key, {}).get("llm_judge_responses", [])
-                    if judge_responses:
-                        item_bins = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
-                        bin_scores.append(sum(item_bins) / len(item_bins))
-                    else:
-                        s = q.get(mode_key, {}).get("llm_judge_score", 0.0)
-                        bin_scores.append(1.0 if s > 0.99 else 0.0)
-                bin_avg = sum(bin_scores) / len(bin_scores)
-                parts.append(f"{mode}={avg:.3f} binary={bin_avg:.3f}")
+        questions = case_result.get("questions", [])
+        scores = [q.get("agentic_judgment", {}).get("llm_judge_score", 0.0) for q in questions]
+        if scores:
+            avg = sum(scores) / len(scores)
+            # Binary: 0/1 per rubric item, average per question, then across questions
+            bin_scores = []
+            for q in questions:
+                judge_responses = q.get("agentic_judgment", {}).get("llm_judge_responses", [])
+                if judge_responses:
+                    item_bins = [1.0 if r.get("score", 0) >= 1.0 else 0.0 for r in judge_responses]
+                    bin_scores.append(sum(item_bins) / len(item_bins))
+                else:
+                    s = q.get("agentic_judgment", {}).get("llm_judge_score", 0.0)
+                    bin_scores.append(1.0 if s > 0.99 else 0.0)
+            bin_avg = sum(bin_scores) / len(bin_scores)
+            parts.append(f"agentic={avg:.3f} binary={bin_avg:.3f}")
         print(f"    {' | '.join(parts)}")
 
     print("=" * 70)

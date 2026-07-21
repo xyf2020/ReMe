@@ -3,7 +3,7 @@
 Evaluates ReMe's long-term memory capability using the LongMemEval dataset.
 Each item gets an isolated workspace; sessions are ingested in chronological order;
 dream is triggered when sessions cross midnight (23:00); finally questions are
-answered via search and judged by an LLM.
+answered via an agentic (ReAct) approach and judged by an LLM.
 
 Usage:
     python benchmark/longmemeval/run.py
@@ -296,29 +296,10 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     workspace_dir = str(item_dir / ".reme")
     if eval_only:
         if not item_dir.exists() or not Path(workspace_dir).exists():
-            logger.warning(
-                f"[Item {item_index}] eval_only: workspace not found at {item_dir}, skipping",
+            raise FileNotFoundError(
+                f"[Item {item_index}] eval_only: workspace not found at {item_dir}. "
+                f"Run without --eval_only first to build the workspace.",
             )
-            _skip_judgment = {
-                "verdict": "no",
-                "reason": "workspace missing in eval_only mode",
-                "metric": "binary",
-                "question_type": item["question_type"],
-            }
-            return {
-                "question_id": item["question_id"],
-                "question_type": item["question_type"],
-                "question": item["question"],
-                "ground_truth": item["answer"],
-                "agentic_response": "(workspace missing, skipped)",
-                "agentic_judgment": dict(_skip_judgment),
-                "prompted_response": "(workspace missing, skipped)",
-                "prompted_judgment": dict(_skip_judgment),
-                "prompted_input_tokens": 0,
-                "prompted_output_tokens": 0,
-                "sessions_ingested": 0,
-                "dreams_triggered": 0,
-            }
     else:
         if item_dir.exists():
             shutil.rmtree(item_dir)
@@ -346,8 +327,8 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
     cfg = resolve_app_config(
         config=reme_cfg["config"],
         workspace_dir=workspace_dir,
-        log_to_console=eval_config["output"].get("log_to_console", True),
-        log_to_file=eval_config["output"].get("log_to_file", False),
+        log_to_console=output_cfg.get("log_to_console", True),
+        log_to_file=output_cfg.get("log_to_file", False),
         enable_logo=False,
     )
 
@@ -462,30 +443,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
         logger.info(f"[Item {item_index}] Agentic response: {agentic_response[:200]}...")
 
-        # ── Phase 4b: Prompted answer (direct LLM with search context) ──
-        logger.info(
-            f"[Item {item_index}] Asking (prompted): {question[:80]}...",
-        )
-        prompted_resp = await app.run_job(
-            "context_answer",
-            question=question,
-            query_time=query_time,
-        )
-        prompted_response = (prompted_resp.answer or "").strip()
-        prompted_input_tokens = (prompted_resp.metadata or {}).get("input_tokens", 0)
-        prompted_output_tokens = (prompted_resp.metadata or {}).get("output_tokens", 0)
-
-        logger.info(
-            f"[Item {item_index}] Prompted tokens: input={prompted_input_tokens} output={prompted_output_tokens}",
-        )
-
-        if not prompted_response:
-            prompted_response = "(no answer generated)"
-
-        logger.info(f"[Item {item_index}] Prompted response: {prompted_response[:200]}...")
-
-        # ── Phase 5: Judge both responses (via answer_judge_step) ──────────
-        # Judge agentic response
+        # ── Phase 5: Judge agentic response (via answer_judge_step) ──────────
         logger.info(f"[Item {item_index}] Judging agentic (binary, type={item['question_type']})...")
         agentic_judgment = await judge_response_via_job(
             app=app,
@@ -495,17 +453,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             question_type=item["question_type"],
         )
         logger.info(f"[Item {item_index}] agentic binary result: {agentic_judgment}")
-
-        # Judge prompted response
-        logger.info(f"[Item {item_index}] Judging prompted (binary, type={item['question_type']})...")
-        prompted_judgment = await judge_response_via_job(
-            app=app,
-            question=question,
-            ground_truth=item["answer"],
-            response=prompted_response,
-            question_type=item["question_type"],
-        )
-        logger.info(f"[Item {item_index}] prompted binary result: {prompted_judgment}")
 
     finally:
         await app.close()
@@ -517,10 +464,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         "ground_truth": item["answer"],
         "agentic_response": agentic_response,
         "agentic_judgment": agentic_judgment,
-        "prompted_response": prompted_response,
-        "prompted_judgment": prompted_judgment,
-        "prompted_input_tokens": prompted_input_tokens,
-        "prompted_output_tokens": prompted_output_tokens,
         "sessions_ingested": len(sorted_sessions),
         "dreams_triggered": len(dream_dates_triggered),
     }
@@ -600,8 +543,11 @@ def main(
         data = json.load(f)
 
     start = dataset_cfg.get("start_index", 0)
-    num_items = dataset_cfg.get("num_items", 1)
-    raw_items = data[start : start + num_items]
+    num_items = dataset_cfg.get("num_items", 0)
+    if num_items > 0:
+        raw_items = data[start : start + num_items]
+    else:
+        raw_items = data[start:]
 
     # Build item list
     items_with_idx = [(start + i, item) for i, item in enumerate(raw_items)]
@@ -627,8 +573,28 @@ def main(
     logger.info(f"Using {num_workers} worker(s)")
 
     # Create output directory
-    output_dir = _PROJECT_ROOT / eval_config["output"]["dir"]
+    output_dir = _PROJECT_ROOT / output_cfg.get("dir", "benchmark/results/longmemeval")
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create workspace root directory
+    workspace_root = _PROJECT_ROOT / dataset_cfg.get("workspace_root", _WORKSPACE_ROOT_DEFAULT)
+    workspace_root.mkdir(parents=True, exist_ok=True)
+
+    # Pre-check: verify all workspaces exist in eval_only mode
+    if eval_only:
+        missing_items = []
+        for orig_idx, _ in items_with_idx:
+            item_dir = workspace_root / f"item_{orig_idx}"
+            if not item_dir.exists() or not (item_dir / ".reme").exists():
+                missing_items.append(orig_idx)
+        if missing_items:
+            preview = missing_items[:10]
+            suffix = "..." if len(missing_items) > 10 else ""
+            raise FileNotFoundError(
+                f"eval_only: {len(missing_items)} workspace(s) not found under {workspace_root}. "
+                f"Missing item indices: {preview}{suffix}. "
+                f"Run without --eval_only first to build the workspaces.",
+            )
 
     # Build task args — include log levels, eval_only flag, and log paths (use original index for workspace lookup)
     task_args = [
@@ -711,7 +677,7 @@ def main(
 # Summary printing
 # ---------------------------------------------------------------------------
 def _print_summary(results: list[dict], start_time: float) -> None:
-    """Print per-item verdicts, per-type accuracy, and token usage stats."""
+    """Print per-item verdicts and per-type accuracy."""
     print("\n" + "=" * 60)
     print("EVALUATION RESULTS")
     print("=" * 60)
@@ -731,15 +697,13 @@ def _print_summary(results: list[dict], start_time: float) -> None:
         return correct, stats
 
     agentic_correct, agentic_type_stats = _accumulate("agentic_judgment")
-    prompted_correct, prompted_type_stats = _accumulate("prompted_judgment")
 
     total = len(results)
 
     # Per-item verdict rows
     for r in results:
         a_verdict = r.get("agentic_judgment", {}).get("verdict", "N/A")
-        p_verdict = r.get("prompted_judgment", {}).get("verdict", "N/A")
-        print(f"  [{r['question_id']}] type={r['question_type']}  agentic={a_verdict}  prompted={p_verdict}")
+        print(f"  [{r['question_id']}] type={r['question_type']}  agentic={a_verdict}")
 
     print("\n" + "-" * 60)
     print(f"  Items: {total}")
@@ -751,26 +715,6 @@ def _print_summary(results: list[dict], start_time: float) -> None:
     for qtype, stats in sorted(agentic_type_stats.items()):
         acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
         print(f"    {qtype}: {stats['correct']}/{stats['total']} ({acc:.1f}%)")
-
-    # Prompted stats
-    print("\n  ── Prompted (direct LLM + think) ──")
-    print(f"  Overall accuracy: {prompted_correct}/{total} ({100*prompted_correct/total:.1f}%)")
-    print("  Per-type accuracy:")
-    for qtype, stats in sorted(prompted_type_stats.items()):
-        acc = 100 * stats["correct"] / stats["total"] if stats["total"] else 0
-        print(f"    {qtype}: {stats['correct']}/{stats['total']} ({acc:.1f}%)")
-
-    # Prompted token usage stats
-    total_input_tokens = sum(r.get("prompted_input_tokens", 0) for r in results)
-    total_output_tokens = sum(r.get("prompted_output_tokens", 0) for r in results)
-    counted = sum(1 for r in results if r.get("prompted_input_tokens", 0) > 0)
-    avg_input = total_input_tokens / counted if counted else 0
-    avg_output = total_output_tokens / counted if counted else 0
-    print(f"\n  ── Prompted Token Usage (avg over {counted} queries) ──")
-    print(f"  Avg input tokens/query:  {avg_input:,.1f}")
-    print(f"  Avg output tokens/query: {avg_output:,.1f}")
-    print(f"  Total input tokens:      {total_input_tokens:,}")
-    print(f"  Total output tokens:     {total_output_tokens:,}")
 
     print("=" * 60)
     total_elapsed = time.time() - start_time

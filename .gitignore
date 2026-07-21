@@ -37,8 +37,7 @@ dist/
 nohup.out
 nohup*.out
 log/
-logs/*
-!logs/.gitkeep
+logs/
 runs/
 tmp*/
 temp*/
@@ -56,8 +55,7 @@ docs/_build/
 site/
 
 # Memory workspaces (keep dirs, ignore contents)
-benchmark/memory_workspaces/*/*
-!benchmark/memory_workspaces/*/.gitkeep
+benchmark/memory_workspaces/
 
 # LongMemEval raw data (download via download.py)
 benchmark/datasets/longmemeval/longmemeval_s_reme_cleaned.json
@@ -66,8 +64,7 @@ benchmark/datasets/longmemeval/longmemeval_s_reme_cleaned.json
 benchmark/datasets/BEAM/
 
 # Benchmark outputs
-benchmark/results/*
-!benchmark/results/.gitkeep
+benchmark/results/
 
 # integration tests outputs
 tests/integration/logs/

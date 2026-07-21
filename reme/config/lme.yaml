@@ -58,32 +58,6 @@ jobs:
       - backend: lme_answer_judge_step
         agent_wrapper: judge
 
-  # ── LongMemEval prompted-answer baseline (direct LLM + search context) ──
-  context_answer:
-    backend: base
-    description: "Generate answer from retrieved memory context using direct LLM call (prompted baseline)."
-    watch_dirs: []
-    watch_suffixes: []
-    parameters:
-      type: object
-      properties:
-        question:
-          type: string
-          description: "The question to answer"
-        query_time:
-          type: string
-          description: "ISO timestamp for temporal awareness"
-          default: ""
-        retrieved_context:
-          type: string
-          description: "Pre-built search context (if empty, search job is run internally)"
-          default: ""
-      required:
-        - question
-    steps:
-      - backend: lme_context_answer_step
-        as_llm: prompted
-
   # ── Manual index update (replaces index_update_loop background) ──
   index_update:
     backend: base
@@ -521,19 +495,6 @@ components:
       parameters:
         max_tokens: 65536
         thinking_enable: false
-    prompted:
-      backend: ${LLM_BACKEND:-openai}
-      model: ${PROMPTED_MODEL_NAME:-qwen3.7-max}
-      stream: false
-      context_size: 400000
-      max_retries: 5
-      retry_delay: 5.0
-      credential:
-        api_key: ${LLM_API_KEY:-}
-        base_url: ${LLM_BASE_URL:-}
-      parameters:
-        max_tokens: 65536
-        thinking_enable: true
     bench:
       backend: ${LLM_BACKEND:-openai}
       model: ${BENCH_MODEL_NAME:-qwen3.7-max}
