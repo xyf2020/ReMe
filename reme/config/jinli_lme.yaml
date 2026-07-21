@@ -1,7 +1,7 @@
 service:
   backend: cli
 
-workspace_dir: ${LME_WORKSPACE_DIR:-datasets/longmemeval/1}
+workspace_dir: ${LME_WORKSPACE_DIR:-benchmark/datasets/longmemeval/1}
 session_dir: history_session
 resource_dir: session
 daily_dir: daily

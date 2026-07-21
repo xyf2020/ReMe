@@ -34,19 +34,19 @@ Model names and component wiring live in the ReMe configs referenced by each ben
 
 ## 2. Download Datasets
 
-See [`datasets/README_EN.md`](../datasets/README_EN.md) for full details.
+See [`datasets/README_EN.md`](datasets/README_EN.md) for full details.
 
 **LongMemEval** (downloaded from a HuggingFace mirror):
 
 ```bash
-cd datasets/longmemeval
+cd benchmark/datasets/longmemeval
 python download.py            # downloads the cleaned-S dataset; skips if already present
 ```
 
-**BEAM** (public repository, cloned into `datasets/`):
+**BEAM** (public repository, cloned into `benchmark/datasets/`):
 
 ```bash
-cd datasets
+cd benchmark/datasets
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
 
@@ -78,7 +78,7 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 | `dataset.path` | Dataset file to evaluate (e.g. `longmemeval_s_reme_cleaned.json`); ground truth is included. |
 | `dataset.start_index` / `num_items` | Slice of items to evaluate. |
 | `dataset.question_types` | Filter by question type; empty = all. |
-| `dataset.workspace_root` | Per-item workspace root (`memory_workspaces/longmemeval-s`). |
+| `dataset.workspace_root` | Per-item workspace root (`benchmark/memory_workspaces/longmemeval-s`). |
 | `evaluation.num_workers` | `0` = auto (cpu-2), `1` = sequential, `>1` = parallel. |
 | `evaluation.filter_future_sessions` | Only ingest sessions with timestamp ≤ `question_date`. |
 | `reme.config` | ReMe config used (`lme.yaml`). |
@@ -107,11 +107,11 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 
 | Key | Meaning |
 | --- | --- |
-| `dataset.beam_root` | BEAM dataset root (`datasets/BEAM`). |
+| `dataset.beam_root` | BEAM dataset root (`benchmark/datasets/BEAM`). |
 | `dataset.chat_size` | Variant to run: `100K` / `500K` / `1M` / `10M`. |
 | `dataset.case_ids` | Specific cases (e.g. `["1","2"]`); empty = all cases. |
 | `dataset.start_index` / `num_items` | Case pagination (`num_items` `0` = all). |
-| `dataset.workspace_root` | Per-case workspace root (`memory_workspaces/beam`). |
+| `dataset.workspace_root` | Per-case workspace root (`benchmark/memory_workspaces/beam`). |
 | `evaluation.num_workers` | `0` = auto, `1` = sequential, `>1` = parallel. |
 | `evaluation.modes` | Answer modes to run: `prompted` and/or `agentic`. |
 | `reme.config` | ReMe config used (`beam.yaml`). |

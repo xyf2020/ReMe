@@ -56,14 +56,14 @@ docs/_build/
 site/
 
 # Memory workspaces (keep dirs, ignore contents)
-memory_workspaces/*/*
-!memory_workspaces/*/.gitkeep
+benchmark/memory_workspaces/*/*
+!benchmark/memory_workspaces/*/.gitkeep
 
 # LongMemEval raw data (download via download.py)
-datasets/longmemeval/longmemeval_s_reme_cleaned.json
+benchmark/datasets/longmemeval/longmemeval_s_reme_cleaned.json
 
 # BEAM dataset (clone via git)
-datasets/BEAM/
+benchmark/datasets/BEAM/
 
 # Benchmark outputs
 benchmark/results/*

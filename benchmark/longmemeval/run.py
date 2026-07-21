@@ -32,7 +32,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root for evaluation items — read from config.yaml (dataset.workspace_root)
-_WORKSPACE_ROOT_DEFAULT = "memory_workspaces/longmemeval-s"
+_WORKSPACE_ROOT_DEFAULT = "benchmark/memory_workspaces/longmemeval-s"
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -323,6 +323,8 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         if item_dir.exists():
             shutil.rmtree(item_dir)
             logger.info(f"[Item {item_index}] Cleaned existing workspace: {item_dir}")
+        else:
+            logger.info(f"[Item {item_index}] Workspace not found, creating: {item_dir}")
         item_dir.mkdir(parents=True, exist_ok=True)
 
     # Pre-initialize ReMe's loguru logger with the correct log_dir

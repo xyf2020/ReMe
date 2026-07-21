@@ -11,7 +11,7 @@ ReMe uses only the **cleaned-S** split of LongMemEval, hosted on HuggingFace:
 Download it with:
 
 ```bash
-cd datasets/longmemeval
+cd benchmark/datasets/longmemeval
 
 # Download the cleaned-S data file (skipped automatically if it already exists)
 python download.py
@@ -26,15 +26,15 @@ After downloading, the directory should contain:
 
 > **Note**: The download script uses hf-mirror.com by default. To use a different mirror, modify `BASE_URL` in `download.py`.
 
-Once the download completes, follow [`benchmark/README.md`](../benchmark/README.md) to run the LongMemEval evaluation.
+Once the download completes, follow [`benchmark/README.md`](../README.md) to run the LongMemEval evaluation.
 
 ## BEAM
 
-BEAM is a public repository. Clone it directly into the `datasets/` directory:
+BEAM is a public repository. Clone it directly into the `benchmark/datasets/` directory:
 
 ```bash
-cd datasets
+cd benchmark/datasets
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
 
-After cloning, `datasets/BEAM/` should contain `chats/`, `src/`, `topics/` and other subdirectories.
+After cloning, `benchmark/datasets/BEAM/` should contain `chats/`, `src/`, `topics/` and other subdirectories.

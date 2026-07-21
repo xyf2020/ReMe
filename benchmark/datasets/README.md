@@ -11,7 +11,7 @@ ReMe 仅使用 LongMemEval 的 **cleaned-S** 版本，数据托管在 HuggingFac
 按以下步骤下载：
 
 ```bash
-cd datasets/longmemeval
+cd benchmark/datasets/longmemeval
 
 # 下载 cleaned-S 数据文件（已存在则自动跳过）
 python download.py
@@ -26,15 +26,15 @@ python download.py
 
 > **注意**：下载脚本使用 hf-mirror.com 镜像源，如需更换源请修改 `download.py` 中的 `BASE_URL`。
 
-下载完成后即可参照 [`benchmark/README_ZH.md`](../benchmark/README_ZH.md) 运行 LongMemEval 评测。
+下载完成后即可参照 [`benchmark/README_ZH.md`](../README_ZH.md) 运行 LongMemEval 评测。
 
 ## BEAM
 
-BEAM 数据集为公开仓库，直接 clone 到 `datasets/` 目录下即可：
+BEAM 数据集为公开仓库，直接 clone 到 `benchmark/datasets/` 目录下即可：
 
 ```bash
-cd datasets
+cd benchmark/datasets
 git clone https://github.com/mohammadtavakoli78/BEAM.git
 ```
 
-clone 完成后，`datasets/BEAM/` 目录下应包含 `chats/`、`src/`、`topics/` 等子目录。
+clone 完成后，`benchmark/datasets/BEAM/` 目录下应包含 `chats/`、`src/`、`topics/` 等子目录。
