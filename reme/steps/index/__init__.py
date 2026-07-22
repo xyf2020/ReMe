@@ -8,6 +8,7 @@ from .log_changes import LogChangesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
 from .search import SearchStep
+from .search_v2 import SearchV2Step
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
 from .vector_search import VectorSearchStep
@@ -33,6 +34,7 @@ __all__ = [
     "NodeSearchStep",
     "ReadAllDraftStep",
     "SearchStep",
+    "SearchV2Step",
     "TraverseStep",
     "UpdateCatalogStep",
     "UpdateIndexStep",

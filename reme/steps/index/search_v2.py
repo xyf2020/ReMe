@@ -1,15 +1,23 @@
-"""Hybrid search over file_store using RRF fusion of vector + keyword results."""
+"""Hybrid search (v2) over file_store using RRF fusion of vector + keyword results.
+
+This is the local fork of the upstream search step. It uses
+:class:`_ToolContextDedupMixin` for subset-aware interval-merging dedup and
+:func:`format_chunks_answer` for session-aware chunk formatting with
+:data:`ALL_RETURNED_MESSAGE` / :data:`NO_RESULTS_MESSAGE` notices.
+"""
 
 import asyncio
 import datetime
 import os
 from typing import Final
 
+from ._dedup import _ToolContextDedupMixin
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
 from ...schema import FileChunk
-from ...utils import expand_links, render_expansion_lines
+from ...utils import expand_links
 
 _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
@@ -27,12 +35,9 @@ def _default_limit() -> int:
         return _DEFAULT_LIMIT
 
 
-@R.register("search_step")
-class SearchStep(BaseStep):
+@R.register("search_v2_step")
+class SearchV2Step(_ToolContextDedupMixin, BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
-
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
-    SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
 
     def __init__(
         self,
@@ -86,53 +91,6 @@ class SearchStep(BaseStep):
                 v = scores.get(k)
                 parts.append(f"{k}={v:.4f}" if v is not None else f"{k}=-")
         return " ".join(parts)
-
-    @staticmethod
-    def _now_ts() -> float:
-        return datetime.datetime.now().timestamp()
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        """Return the mutable state bucket for a tool context."""
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
-
-    def _dedupe_tool_context(
-        self,
-        chunks: list[FileChunk],
-        tool_context_id: str,
-        limit: int,
-    ) -> tuple[list[FileChunk], dict]:
-        now = self.kwargs.get("clock", self._now_ts)()
-        ttl = float(
-            self.kwargs.get(
-                "tool_context_chunk_ttl_seconds",
-                float(self.seen_ttl_hours) * 60 * 60,
-            ),
-        )
-        store = self._tool_context_store(tool_context_id)
-        seen = store.get(self.SEARCH_SEEN_KEY, {})
-        if not isinstance(seen, dict):
-            seen = dict.fromkeys(seen, now)
-        before_expire = len(seen)
-        store[self.SEARCH_SEEN_KEY] = seen = {chunk_id: ts for chunk_id, ts in seen.items() if now - float(ts) < ttl}
-
-        seen_before = len(seen)
-        unvisited = [chunk for chunk in chunks if chunk.id not in seen]
-        returned = unvisited[:limit]
-        for chunk in returned:
-            seen[chunk.id] = now
-
-        return returned, {
-            "tool_context_id": tool_context_id,
-            "seen_before": seen_before,
-            "skipped_seen": len(chunks) - len(unvisited),
-            "seen_after": len(seen),
-            "expired": before_expire - seen_before,
-            "ttl_seconds": ttl,
-        }
 
     async def execute(self):
         assert self.context is not None
@@ -208,21 +166,10 @@ class SearchStep(BaseStep):
         if strict_date_filter:
             search_filter["strict_date_filter"] = True
 
-        text_weight = 1.0 - vector_weight
-        use_vector = vector_weight > 0.0
-        use_keyword = text_weight > 0.0
-
-        if use_vector and use_keyword:
-            vector_results, keyword_results = await asyncio.gather(
-                self.file_store.vector_search(query, candidates, search_filter),
-                self.file_store.keyword_search(query, candidates, search_filter),
-            )
-        elif use_vector:
-            vector_results = await self.file_store.vector_search(query, candidates, search_filter)
-            keyword_results = []
-        else:
-            vector_results = []
-            keyword_results = await self.file_store.keyword_search(query, candidates, search_filter)
+        vector_results, keyword_results = await asyncio.gather(
+            self.file_store.vector_search(query, candidates, search_filter),
+            self.file_store.keyword_search(query, candidates, search_filter),
+        )
 
         self.logger.info(
             f"[{self.name}] query={query!r} candidates={candidates} "
@@ -242,9 +189,17 @@ class SearchStep(BaseStep):
         if min_score > 0.0:
             fused = [c for c in fused if c.score >= min_score]
 
+        pre_dedup_count = 0
         dedup: dict | None = None
         if tool_context_id:
-            fused, dedup = self._dedupe_tool_context(fused, tool_context_id, limit)
+            pre_dedup_count = len(fused)
+            fused, dedup = self._dedupe_tool_context(
+                fused,
+                tool_context_id,
+                limit,
+                clock=self.kwargs.get("clock"),
+                ttl_override=self.kwargs.get("tool_context_chunk_ttl_seconds"),
+            )
         else:
             fused = fused[:limit]
 
@@ -253,15 +208,15 @@ class SearchStep(BaseStep):
             await expand_links(self.file_store, unique_paths, max_links_per_direction) if expand_links_enabled else {}
         )
 
-        answer_lines: list[str] = []
-        for c in fused:
-            answer_lines.append(
-                f"========== {c.path}:{c.start_line}-{c.end_line} "
-                f"[{self._format_scores(c.scores, hybrid)}] ==========\n{c.text}",
-            )
-            answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
-
-        self.context.response.answer = "\n".join(answer_lines)
+        dialog_dir = self.config_value("dialog_dir")
+        self.context.response.answer = format_chunks_answer(
+            fused,
+            dialog_dir,
+            score_fn=lambda c: self._format_scores(c.scores, hybrid),
+            link_expansion=link_expansion,
+        )
+        if not fused:
+            self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
         ]

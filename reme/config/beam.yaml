@@ -215,7 +215,7 @@ jobs:
       required:
         - query
     steps:
-      - backend: search_step
+      - backend: search_v2_step
         vector_weight: 0.7
         candidate_multiplier: 5.0
         expand_links: true
