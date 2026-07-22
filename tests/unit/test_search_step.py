@@ -8,6 +8,7 @@ from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
 from reme.schema import FileChunk, FileLink, FileNode
 from reme.steps.index import AddDraftStep, Bm25SearchStep, ReadAllDraftStep, SearchStep, VectorSearchStep
+from reme.steps.index._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
 
 
 class FakeSearchStore(BaseFileStore):
@@ -592,5 +593,91 @@ def test_search_step_non_strict_date_filter_not_in_search_filter():
 
         for _, _, _, sf in store.calls:
             assert "strict_date_filter" not in sf
+
+    asyncio.run(run())
+
+
+def test_search_step_all_deduped_shows_all_returned_message():
+    """When tool_context dedup removes every result, the answer explains that all content was previously returned."""
+
+    async def run():
+        chunks = [
+            _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+            _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+        ]
+        store = FakeSearchStore(keyword_results=chunks)
+        step = SearchStep(file_store=store, expand_links=False)
+
+        first = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
+        second = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
+
+        assert [r["id"] for r in first.metadata["results"]] == ["a", "b"]
+        assert first.answer != ""
+
+        assert second.metadata["results"] == []
+        assert second.answer == ALL_RETURNED_MESSAGE
+        assert second.metadata["counts"]["returned"] == 0
+
+    asyncio.run(run())
+
+
+def test_plain_search_steps_all_deduped_shows_all_returned_message():
+    """VectorSearchStep and Bm25SearchStep show the all-returned message when dedup empties results."""
+
+    async def run():
+        vector_store = FakeSearchStore(
+            vector_results=[
+                _chunk("a", "daily/a.md", "first", "vector", 5.0),
+                _chunk("b", "daily/b.md", "second", "vector", 4.0),
+            ],
+        )
+        keyword_store = FakeSearchStore(
+            keyword_results=[
+                _chunk("a", "daily/a.md", "first", "keyword", 5.0),
+                _chunk("b", "daily/b.md", "second", "keyword", 4.0),
+            ],
+        )
+
+        vector = VectorSearchStep(file_store=vector_store, include_source=False)
+        bm25 = Bm25SearchStep(file_store=keyword_store, include_source=False)
+
+        v_first = await vector(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-v"))
+        v_second = await vector(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-v"))
+
+        b_first = await bm25(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-b"))
+        b_second = await bm25(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-b"))
+
+        assert v_first.answer != ""
+        assert v_second.metadata["results"] == []
+        assert v_second.answer == ALL_RETURNED_MESSAGE
+
+        assert b_first.answer != ""
+        assert b_second.metadata["results"] == []
+        assert b_second.answer == ALL_RETURNED_MESSAGE
+
+    asyncio.run(run())
+
+
+def test_search_steps_no_results_shows_no_results_message():
+    """When there are no results at all (before dedup), the answer explains that nothing was found."""
+
+    async def run():
+        empty_store = FakeSearchStore()
+
+        hybrid = SearchStep(file_store=empty_store, expand_links=False)
+        vector = VectorSearchStep(file_store=empty_store, include_source=False)
+        bm25 = Bm25SearchStep(file_store=empty_store, include_source=False)
+
+        # With tool_context_id set (dedup path, but nothing to dedup)
+        for step in (hybrid, vector, bm25):
+            resp = await step(RuntimeContext(query="alpha", limit=5, tool_context_id="ctx-1"))
+            assert resp.metadata["results"] == []
+            assert resp.answer == NO_RESULTS_MESSAGE
+
+        # Without tool_context_id (plain truncation path)
+        for step in (hybrid, vector, bm25):
+            resp = await step(RuntimeContext(query="alpha", limit=5))
+            assert resp.metadata["results"] == []
+            assert resp.answer == NO_RESULTS_MESSAGE
 
     asyncio.run(run())

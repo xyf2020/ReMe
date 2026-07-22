@@ -31,7 +31,7 @@ class JsonlFileChunker(BaseFileChunker):
     def __init__(
         self,
         encoding: str = "utf-8",
-        max_chars: int = 2000,
+        max_chars: int = 4000,
         max_overlap_chars: int = 0,
         mode: str = "chars",
         **kwargs,

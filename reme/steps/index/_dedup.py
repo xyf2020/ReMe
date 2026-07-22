@@ -41,7 +41,7 @@ class _ToolContextDedupMixin:
             raise TypeError(
                 f"{cls.__name__!r} mixes in _ToolContextDedupMixin but does not "
                 f"inherit from BaseStep. Mix it in alongside BaseStep, e.g. "
-                f"class {cls.__name__}(_ToolContextDedupMixin, BaseStep)."
+                f"class {cls.__name__}(_ToolContextDedupMixin, BaseStep).",
             )
 
     def __new__(cls, *args, **kwargs):
@@ -49,7 +49,7 @@ class _ToolContextDedupMixin:
             raise TypeError(
                 "_ToolContextDedupMixin is a mixin and cannot be instantiated "
                 "directly. Mix it into a BaseStep subclass, e.g. "
-                "class SearchStep(_ToolContextDedupMixin, BaseStep)."
+                "class SearchStep(_ToolContextDedupMixin, BaseStep).",
             )
         return super().__new__(cls, *args, **kwargs)
 
@@ -110,17 +110,12 @@ class _ToolContextDedupMixin:
         # Older shapes ({chunk_id: timestamp} or a plain list of ids) cannot
         # be migrated because chunk_id is an opaque hash; seen is a transient
         # per-Application cache, so dropping it is safe.
-        if not isinstance(seen, dict) or (
-            seen and all(not isinstance(v, list) for v in seen.values())
-        ):
+        if not isinstance(seen, dict) or (seen and all(not isinstance(v, list) for v in seen.values())):
             seen = {}
 
         before_expire = sum(len(v) for v in seen.values())
         # Expire stale tuples across all paths.
-        seen = {
-            path: [(s, e, t) for (s, e, t) in entries if now - t < ttl]
-            for path, entries in seen.items()
-        }
+        seen = {path: [(s, e, t) for (s, e, t) in entries if now - t < ttl] for path, entries in seen.items()}
         seen = {path: entries for path, entries in seen.items() if entries}
         store[self.SEARCH_SEEN_KEY] = seen
 

@@ -3,7 +3,7 @@
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
-from ._source_format import render_chunk_body
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
 from ..base_step import BaseStep
 from ...components import R
 
@@ -40,20 +40,21 @@ class VectorSearchStep(_ToolContextDedupMixin, BaseStep):
         if min_score > 0.0:
             results = [chunk for chunk in results if chunk.score >= min_score]
 
+        pre_dedup_count = 0
         if tool_context_id:
+            pre_dedup_count = len(results)
             results, _ = self._dedupe_tool_context(results, tool_context_id, limit)
         else:
             results = results[:limit]
 
         dialog_dir = self.config_value("dialog_dir")
-        if self.include_source:
-            self.context.response.answer = "\n".join(
-                f"========== {c.path}:{c.start_line}-{c.end_line} "
-                f"[score={c.score:.4f}] ==========\n{render_chunk_body(c, dialog_dir)}"
-                for c in results
-            )
-        else:
-            self.context.response.answer = "\n\n".join(render_chunk_body(c, dialog_dir) for c in results)
+        self.context.response.answer = format_chunks_answer(
+            results,
+            dialog_dir,
+            include_source=self.include_source,
+        )
+        if not results:
+            self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in results
         ]

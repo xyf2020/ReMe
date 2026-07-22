@@ -6,12 +6,12 @@ import os
 from typing import Final
 
 from ._dedup import _ToolContextDedupMixin
-from ._source_format import render_chunk_body
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, format_chunks_answer
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
 from ...schema import FileChunk
-from ...utils import expand_links, render_expansion_lines
+from ...utils import expand_links
 
 _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
@@ -183,8 +183,10 @@ class SearchStep(_ToolContextDedupMixin, BaseStep):
         if min_score > 0.0:
             fused = [c for c in fused if c.score >= min_score]
 
+        pre_dedup_count = 0
         dedup: dict | None = None
         if tool_context_id:
+            pre_dedup_count = len(fused)
             fused, dedup = self._dedupe_tool_context(
                 fused,
                 tool_context_id,
@@ -200,17 +202,15 @@ class SearchStep(_ToolContextDedupMixin, BaseStep):
             await expand_links(self.file_store, unique_paths, max_links_per_direction) if expand_links_enabled else {}
         )
 
-        answer_lines: list[str] = []
         dialog_dir = self.config_value("dialog_dir")
-        for c in fused:
-            body = render_chunk_body(c, dialog_dir)
-            answer_lines.append(
-                f"========== {c.path}:{c.start_line}-{c.end_line} "
-                f"[{self._format_scores(c.scores, hybrid)}] ==========\n{body}",
-            )
-            answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
-
-        self.context.response.answer = "\n".join(answer_lines)
+        self.context.response.answer = format_chunks_answer(
+            fused,
+            dialog_dir,
+            score_fn=lambda c: self._format_scores(c.scores, hybrid),
+            link_expansion=link_expansion,
+        )
+        if not fused:
+            self.context.response.answer = ALL_RETURNED_MESSAGE if pre_dedup_count > 0 else NO_RESULTS_MESSAGE
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
         ]
