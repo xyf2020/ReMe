@@ -58,6 +58,9 @@ memory, then continuously indexes, links, and consolidates that memory for futur
 
 ## 📰 News
 
+- [2026.07] - Introduced optional Cookbook workflows, starting with
+  [Daily Paper](cookbook/daily_paper/README.md) for scheduled paper discovery, agent-assisted PDF analysis, reusable
+  Markdown notes, and five-minute briefs.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   has been accepted to Findings of ACL 2026.
@@ -160,6 +163,16 @@ ReMe stores agent memory as readable Markdown.
 
 Related: [[digest/wiki/memory-as-file.md]]
 ```
+
+## 🧑‍🍳 Cookbooks
+
+Cookbooks are optional, end-to-end workflows assembled from ReMe jobs and steps. They are not enabled by the default
+configuration; select the cookbook's standalone configuration when starting ReMe. Each new cookbook will be added as
+another row in this table.
+
+| Cookbook    | Capability                                                                                                    | Introduction                             |
+|-------------|---------------------------------------------------------------------------------------------------------------|------------------------------------------|
+| Daily Paper | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. | [README](cookbook/daily_paper/README.md) |
 
 ## 📁 Memory System
 
