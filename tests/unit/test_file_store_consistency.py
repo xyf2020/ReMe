@@ -7,6 +7,9 @@ import base64
 import json
 import os
 import tempfile
+import threading
+import time
+from contextlib import suppress
 
 import numpy as np
 import pytest
@@ -897,6 +900,314 @@ def test_faiss_date_filter_progressive_recall():
             results = await store.vector_search("alpha", 5, {"start_date": "2026-01-18", "end_date": "2026-01-19"})
             assert len(results) == 2
 
+            await store.close()
+
+    run(go())
+
+
+# -- Async reindex tests -----------------------------------------------------
+
+
+def _new_faiss_store(name, **kwargs):
+    """Construct a started FAISS store with a fake embedding backend and empty index."""
+    try:
+        store = FaissLocalFileStore(name=name, embedding_store="", **kwargs)
+    except ImportError:
+        pytest.skip("faiss is not installed")
+    return store
+
+
+def test_faiss_async_reindex_disabled_by_default():
+    """Default store keeps the synchronous compaction path: no background task."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_sync_default", max_tombstones=2)
+            assert store.async_reindex is False
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            files = [(node(f"n{i}.md"), [chunk(f"c{i}", f"n{i}.md", "alpha text")]) for i in range(4)]
+            await store.upsert(files)
+            await store.delete([f"n{i}.md" for i in range(3)])
+
+            # Synchronous rebuild ran inline; no background reindex task was created.
+            assert store._reindex_task is None
+            assert store._tombstones == set()
+            assert set(store._id_to_row) == {"c3"}
+            assert [c.id for c in await store.vector_search("alpha", 10, {})] == ["c3"]
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_async_reindex_triggered_by_compaction():
+    """Crossing the tombstone threshold schedules a background rebuild whose result
+    matches a synchronous rebuild (deleted ids gone, tombstones cleared)."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_async_compact", async_reindex=True, max_tombstones=2)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            files = [(node(f"n{i}.md"), [chunk(f"c{i}", f"n{i}.md", "alpha text")]) for i in range(4)]
+            await store.upsert(files)
+            assert store._reindex_task is None  # below threshold, nothing scheduled yet
+
+            await store.delete([f"n{i}.md" for i in range(3)])  # 3 tombstones >= 2 -> schedule
+            assert store._reindex_task is not None
+            await store._reindex_task
+
+            assert set(store._id_to_row) == {"c3"}
+            assert store._tombstones == set()
+            assert [c.id for c in await store.vector_search("alpha", 10, {})] == ["c3"]
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_async_reindex_no_lost_writes_during_build():
+    """Writes that land while an async rebuild is in flight survive the swap."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_async_nolost", async_reindex=True)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+            assert [c.id for c in await store.vector_search("alpha", 5, {})] == ["a"]
+
+            started = threading.Event()
+            release = threading.Event()
+            real_build = store._build_index_blocking
+
+            def gated_build(dim, vectors, gen):
+                started.set()
+                while not release.is_set() and gen == store._reindex_generation:
+                    time.sleep(0.005)
+                if gen != store._reindex_generation:
+                    return None
+                return real_build(dim, vectors, gen)
+
+            store._build_index_blocking = gated_build
+
+            store._schedule_reindex()  # snapshot == {a}
+            while not started.is_set():
+                await asyncio.sleep(0.005)
+
+            # Concurrent writes on the live index while the build is blocked:
+            await store.upsert([(node("b.md"), [chunk("b", "b.md", "beta text")])])  # brand new
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "beta text")])])  # changed text
+
+            release.set()
+            await store._reindex_task
+
+            # Swapped index reflects both concurrent writes despite building from the
+            # stale snapshot; the changed chunk now embeds as "beta".
+            assert set(store._id_to_row) == {"a", "b"}
+            assert {c.id for c in await store.vector_search("beta", 5, {})} == {"a", "b"}
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_async_reindex_supersede_cancels_previous():
+    """A second reindex supersedes the first: only one runs, the latest wins."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_async_supersede", async_reindex=True)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+
+            started = threading.Event()
+            proceed = threading.Event()
+            real_build = store._build_index_blocking
+            build_gens: list[int] = []
+
+            def build(dim, vectors, gen):
+                build_gens.append(gen)
+                started.set()
+                while not proceed.is_set() and gen == store._reindex_generation:
+                    time.sleep(0.005)
+                if gen != store._reindex_generation:
+                    return None
+                return real_build(dim, vectors, gen)
+
+            store._build_index_blocking = build
+
+            store._schedule_reindex()  # generation 1
+            gen1 = store._reindex_generation
+            first_task = store._reindex_task
+            while not started.is_set():
+                await asyncio.sleep(0.005)
+
+            store._schedule_reindex()  # generation 2 supersedes 1
+            assert store._reindex_generation == gen1 + 1
+            with suppress(asyncio.CancelledError, Exception):
+                await first_task  # gen1 aborts via the advanced generation
+
+            proceed.set()
+            await store._reindex_task
+
+            assert set(store._id_to_row) == {"a"}
+            assert build_gens[-1] == gen1 + 1
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_build_index_blocking_aborts_when_superseded():
+    """_build_index_blocking aborts once its generation is no longer current, even
+    with no other cancel signal (regression: a superseded build must never revive)."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_build_gen", async_reindex=True)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+
+            vectors = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float16)
+            store._reindex_generation = 7
+
+            # A build whose generation is current completes fully.
+            index = store._build_index_blocking(2, vectors, 7)
+            assert index is not None and index.ntotal == 2
+
+            # A superseded build (stale generation) aborts before adding anything.
+            assert store._build_index_blocking(2, vectors, 6) is None
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_async_reindex_cancelled_on_close():
+    """close() stops an in-flight reindex without hanging on the worker thread."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_async_close", async_reindex=True)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+
+            started = threading.Event()
+
+            def slow_build(dim, vectors, gen):
+                started.set()
+                while gen == store._reindex_generation:
+                    time.sleep(0.005)
+                return None
+
+            store._build_index_blocking = slow_build
+            store._schedule_reindex()
+            while not started.is_set():
+                await asyncio.sleep(0.005)
+
+            await store.close()  # _cancel_reindex signals the build to stop
+            assert store._reindex_task is None
+
+    run(go())
+
+
+def test_faiss_close_does_not_leave_orphan_reindex():
+    """The final dump in _close() must not re-schedule a background reindex."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_close_orphan", async_reindex=True, max_tombstones=2)
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+
+            files = [(node(f"n{i}.md"), [chunk(f"c{i}", f"n{i}.md", "alpha text")]) for i in range(4)]
+            await store.upsert(files)
+
+            # Make every rebuild abort without swapping, so tombstones stay above the
+            # threshold (simulates a reindex that never got to compact them).
+            store._build_index_blocking = lambda dim, vectors, gen: None
+            await store.delete([f"n{i}.md" for i in range(3)])  # 3 tombstones >= 2 -> schedule
+            await store._reindex_task  # completes without swapping; tombstones remain
+            assert len(store._tombstones) >= store.max_tombstones
+
+            # Closing triggers dump -> _compact_if_needed; the _closing guard must stop
+            # it from spawning a new (orphan) reindex task.
+            await store.close()
+            assert store._reindex_task is None
+
+    run(go())
+
+
+def test_faiss_clear_waits_for_in_flight_dump():
+    """clear() serializes with dump() through _faiss_dump_lock."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_clear_lock")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+
+            first_started = asyncio.Event()
+            release = asyncio.Event()
+            original_write_sidecar = store._write_sidecar
+
+            async def blocking_write_sidecar():
+                first_started.set()
+                await release.wait()
+
+            store._write_sidecar = blocking_write_sidecar
+            dump_task = asyncio.create_task(store.dump())
+            await first_started.wait()
+
+            clear_task = asyncio.create_task(store.clear())
+            await asyncio.sleep(0.02)
+            assert not clear_task.done()  # blocked on _faiss_dump_lock held by dump
+
+            release.set()
+            await asyncio.gather(dump_task, clear_task)
+            assert store._id_to_row == {}
+
+            store._write_sidecar = original_write_sidecar
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_delete_queries_graph_once():
+    """delete() resolves nodes once and reuses them (no redundant get_nodes)."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_faiss_store("t_faiss_delete_once")
+            await store.start()
+            store.embedding_store = FakeEmbeddingStore()
+            store._faiss_index = store._new_index()
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha text")])])
+
+            calls: list = []
+            original_get_nodes = store.file_graph.get_nodes
+
+            async def counting_get_nodes(paths=None):
+                calls.append(paths)
+                return await original_get_nodes(paths)
+
+            store.file_graph.get_nodes = counting_get_nodes
+            await store.delete("a.md")
+
+            assert len(calls) == 1
+            assert "a" not in store._id_to_row
+
+            store.file_graph.get_nodes = original_get_nodes
             await store.close()
 
     run(go())
