@@ -13,7 +13,7 @@ evaluation:
   # LLM-as-judge uses the 'judge' as_llm component defined in lme.yaml
   # Model and credentials are configured there (reading from .env)
   # Judgment is always binary (yes/no) — defined in lme/llm_judge.yaml
-  num_workers: 28            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
+  num_workers: 32            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
   filter_future_sessions: true  # true = only ingest sessions with timestamp <= question_date
 
 reme:

@@ -90,3 +90,9 @@
 Prompted token 消耗：总 input 13,111,421 (平均 26,275/题)，总 output 313,370 (平均 628/题)。
 平均 sessions_ingested: 44.8，dreams_triggered: 0。
 
+
+| 实验条件 |	总准确率 |	耗时 |
+|---|---|---|
+| Baseline（全量）|	88.6% (443/500) |	8.8 min |
+| 禁用 session file chunks |	85.2% (426/500) |	7.4 min |
+| 禁用 note file chunks |	86.2% (431/500) |	8.9 min |
