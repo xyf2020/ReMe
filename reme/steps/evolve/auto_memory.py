@@ -324,11 +324,17 @@ class AutoMemoryStep(BaseStep):
         )
 
         self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")
+        # Existing-note updates are restricted to the resolved note path. New
+        # notes retain the upstream ``daily_write`` date behavior, where the
+        # model supplies the date from the prompt.
+        reply_kwargs = self._reply_extra_kwargs(day)
+        if not created:
+            reply_kwargs["injected_job_kwargs"] = {"_allowed_paths": [note_path]}
         result = await self.agent_wrapper.reply(
             user_message,
             system_prompt=self.prompt_format("system_prompt"),
             job_tools=self.create_tools if created else self.update_tools,
-            **self._reply_extra_kwargs(day),
+            **reply_kwargs,
         )
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 

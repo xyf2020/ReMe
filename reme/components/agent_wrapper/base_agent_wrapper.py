@@ -9,6 +9,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 from pydantic import BaseModel
 
 from ..base_component import BaseComponent
+from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk
 
@@ -31,12 +32,17 @@ class BaseAgentWrapper(BaseComponent):
         super().__init__(**kwargs)
         self._cwd = cwd
         self._project_path = project_path
+        self.outbound_proxy = self.bind(
+            "default",
+            BaseOutboundProxy,
+            optional=True,
+        )
         if self.SDK_PACKAGE:
             try:
                 sdk_version = metadata.version(self.SDK_PACKAGE)
             except metadata.PackageNotFoundError:
                 sdk_version = "unknown"
-            self.logger.info(f"Agent SDK package={self.SDK_PACKAGE} version={sdk_version}")
+            self.logger.info(f"Agent SDK name={self.name} package={self.SDK_PACKAGE} version={sdk_version}")
 
     @property
     def cwd(self) -> Path:
@@ -121,6 +127,20 @@ class BaseAgentWrapper(BaseComponent):
             return {}
         return self.app_context.app_config.environment
 
+    @property
+    def command_proxy_environment(self) -> dict[str, str]:
+        """Managed proxy variables for agent command tools only."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return {}
+        return self.outbound_proxy.merge_environment()
+
+    @property
+    def bash_environment(self) -> dict[str, str]:
+        """Configured command environment with the managed proxy applied last."""
+        if not isinstance(self.outbound_proxy, BaseOutboundProxy):
+            return dict(self.subprocess_environment)
+        return self.outbound_proxy.merge_environment(self.subprocess_environment)
+
     def set_output_schema(self, schema: dict | type[BaseModel]) -> "BaseAgentWrapper":
         """Set a JSON schema for structured output. Accepts dict or BaseModel class. Returns self for chaining."""
         self.kwargs["output_schema"] = self._normalize_output_schema(schema)
@@ -134,6 +154,46 @@ class BaseAgentWrapper(BaseComponent):
         if schema is None or isinstance(schema, dict):
             return schema
         raise TypeError("output_schema must be a JSON schema dict or BaseModel class")
+
+    @staticmethod
+    def _resolve_injected_job_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Collect server-owned kwargs merged into every job tool call.
+
+        ``injected_job_kwargs`` values are enforced constraints added by the
+        wrapper after receiving the model's tool arguments; the model can
+        neither see nor override them. ``tool_context_id`` keeps its dedicated
+        option but is carried through the same mechanism.
+        """
+        injected = dict(kwargs.get("injected_job_kwargs") or {})
+        if tool_context_id := kwargs.get("tool_context_id"):
+            injected["tool_context_id"] = tool_context_id
+        return injected
+
+    @staticmethod
+    def _merge_injected_job_kwargs(model_kwargs: dict[str, Any], injected: dict[str, Any]) -> dict[str, Any]:
+        """Merge server-owned kwargs over model tool arguments, rejecting conflicts.
+
+        Silently letting model values win would make injected constraints
+        bypassable, so any overlap is an explicit error.
+        """
+        if conflicts := sorted(injected.keys() & model_kwargs.keys()):
+            names = ", ".join(conflicts)
+            raise ValueError(f"injected tool arguments cannot be provided by the model: {names}")
+        return {**model_kwargs, **injected}
+
+    @staticmethod
+    def _strip_injected_parameters(parameters: dict | None, injected: dict[str, Any]) -> dict | None:
+        """Hide injected keys from the tool parameter schema exposed to the model."""
+        if not parameters or not injected:
+            return parameters
+        parameters = dict(parameters)
+        if "properties" in parameters:
+            parameters["properties"] = {
+                name: schema for name, schema in parameters["properties"].items() if name not in injected
+            }
+        if "required" in parameters:
+            parameters["required"] = [name for name in parameters["required"] if name not in injected]
+        return parameters
 
     def _resolve_job_tools(self, job_tools: list[str]) -> list["BaseJob"]:
         """Resolve job name strings to BaseJob instances via app_context."""
@@ -170,6 +230,10 @@ class BaseAgentWrapper(BaseComponent):
     @abstractmethod
     async def reply(self, inputs: Any, **kwargs) -> dict:
         """Send inputs to the agent and return a dict with session_id and last_message."""
+
+    async def compact_session(self, session_id: str) -> None:
+        """Request compaction of one persisted agent session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

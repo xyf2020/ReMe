@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
 from reme.components.job import BackgroundJob
+from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import ApplicationConfig, Response
@@ -54,7 +55,7 @@ def _wrapper(tmp_path, **kwargs):
             "components": {},
         },
     )
-    context = SimpleNamespace(app_config=config, jobs={job.name: job})
+    context = SimpleNamespace(app_config=config, components={}, jobs={job.name: job})
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
@@ -74,6 +75,38 @@ def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
 
 
+def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
+    wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
+
+    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
+        {
+            "job_tools": ["search"],
+            "tool_context_id": "ctx-1",
+            "injected_job_kwargs": {"_allowed_paths": ["daily/2025-06-01/note.md"]},
+        },
+    )
+
+    raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
+    assert json.loads(raw) == {"_allowed_paths": ["daily/2025-06-01/note.md"]}
+
+    plain = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
+    assert "--injected-job-kwargs" not in plain["args"]
+
+
+def test_prepare_config_merges_injected_job_kwargs_with_tool_context():
+    prepared = _prepare_config(
+        {"jobs": {"selected": {"backend": "base"}}},
+        ["selected"],
+        "ctx-1",
+        {"_allowed_paths": ["daily/2025-06-01/note.md"]},
+    )
+
+    assert prepared["service"]["injected_job_kwargs"] == {
+        "_allowed_paths": ["daily/2025-06-01/note.md"],
+        "tool_context_id": "ctx-1",
+    }
+
+
 def test_thread_config_preserves_other_mcp_servers(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
     config = wrapper._thread_config(  # pylint: disable=protected-access
@@ -86,6 +119,43 @@ def test_thread_config_preserves_other_mcp_servers(tmp_path):
     assert "docs" in config["mcp_servers"]
     assert len(config["mcp_servers"]) == 2
     assert next(name for name in config["mcp_servers"] if name != "docs").startswith("reme_jobs_")
+
+
+@pytest.mark.asyncio
+async def test_thread_config_injects_proxy_only_into_codex_shell_policy(tmp_path):
+    wrapper, _job = _wrapper(tmp_path)
+    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
+    await proxy.start()
+    wrapper.app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
+    await wrapper.start()
+
+    config = wrapper._thread_config(  # pylint: disable=protected-access
+        {
+            "config": {
+                "shell_environment_policy": {
+                    "inherit": "core",
+                    "set": {
+                        "CUSTOM": "preserved",
+                        "HTTP_PROXY": "http://user-proxy.example:8080",
+                    },
+                },
+            },
+        },
+    )
+    environment = config["shell_environment_policy"]["set"]
+
+    assert config["shell_environment_policy"]["inherit"] == "core"
+    assert environment["CUSTOM"] == "preserved"
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        assert environment[key] == proxy.http_url
+
+    auth = wrapper._resolve_auth_config("oauth")  # pylint: disable=protected-access
+    client_config = wrapper._build_client_config(auth)  # pylint: disable=protected-access
+    assert "HTTP_PROXY" not in client_config.env
+    assert "HTTPS_PROXY" not in client_config.env
+
+    await wrapper.close()
+    await proxy.close()
 
 
 def test_mcp_config_rejects_background_jobs(tmp_path):
@@ -520,7 +590,7 @@ async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
         },
     )
     job = _Job("only_custom")
-    context = SimpleNamespace(app_config=app_config, jobs={"only_custom": job})
+    context = SimpleNamespace(app_config=app_config, components={}, jobs={"only_custom": job})
     wrapper = CodexAgentWrapper(app_context=context)
     server_config = wrapper._mcp_server_config({"job_tools": ["only_custom"]})  # pylint: disable=protected-access
     transport = StdioTransport(
@@ -560,6 +630,35 @@ async def test_open_thread_defaults_to_full_access(tmp_path):
 
     assert observed["approval_mode"] == ApprovalMode.auto_review
     assert observed["sandbox"] == Sandbox.full_access
+
+
+@pytest.mark.asyncio
+async def test_compact_session_uses_native_thread_operation(tmp_path, monkeypatch):
+    wrapper, _job = _wrapper(tmp_path)
+    observed = {}
+
+    class FakeThread:
+        async def compact(self):
+            observed["compacted"] = True
+
+    async def start():
+        observed["started"] = True
+
+    async def resume(session_id):
+        observed["resume"] = session_id
+        return FakeThread()
+
+    async def get_codex():
+        return SimpleNamespace(thread_resume=resume)
+
+    monkeypatch.setattr(wrapper, "start", start)
+    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
+
+    await wrapper.compact_session("thread-1")
+
+    assert observed["started"] is True
+    assert observed["resume"] == "thread-1"
+    assert observed["compacted"] is True
 
 
 @pytest.mark.asyncio

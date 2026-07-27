@@ -1,6 +1,7 @@
 """Claude Code SDK backend for the unified agent wrapper."""
 
 import json
+import shlex
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from dataclasses import asdict, dataclass, fields
@@ -72,16 +73,20 @@ class CcAgentWrapper(BaseAgentWrapper):
                 self.logger.warning(f"Failed to link Claude Code skills into {target}: {exc}")
 
     @classmethod
-    def _make_tool(cls, job: "BaseJob", tool_context_id: str | None = None):
+    def _make_tool(
+        cls,
+        job: "BaseJob",
+        tool_context_id: str | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
+    ):
         from claude_agent_sdk import SdkMcpTool
 
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
         async def run_job(args):
-            call_args = dict(args)
-            if tool_context_id:
-                if "tool_context_id" in call_args:
-                    raise ValueError("tool_context_id is injected by agent_wrapper")
-                call_args["tool_context_id"] = tool_context_id
-            response = await job(**call_args)
+            response = await job(**cls._merge_injected_job_kwargs(dict(args), injected))
             return {
                 "content": [{"type": "text", "text": str(response.answer)}],
                 "is_error": not response.success,
@@ -90,9 +95,38 @@ class CcAgentWrapper(BaseAgentWrapper):
         return SdkMcpTool(
             name=job.name,
             description=job.description,
-            input_schema=job.parameters,
+            input_schema=cls._strip_injected_parameters(job.parameters, injected),
             handler=run_job,
         )
+
+    def _add_bash_proxy_hook(self, opts: Any) -> None:
+        """Inject managed proxy exports into Claude Code Bash commands."""
+        proxy_environment = self.command_proxy_environment
+        if not proxy_environment:
+            return
+
+        from claude_agent_sdk import HookMatcher
+
+        exports = " ".join(f"{name}={shlex.quote(value)}" for name, value in proxy_environment.items())
+
+        async def inject_proxy(hook_input, _tool_use_id, _context):
+            tool_input = dict(hook_input["tool_input"])
+            command = tool_input.get("command")
+            if not isinstance(command, str):
+                return {}
+            tool_input["command"] = f"export {exports}; {command}"
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "updatedInput": tool_input,
+                },
+            }
+
+        hooks = dict(opts.hooks or {})
+        pre_tool_use = list(hooks.get("PreToolUse") or [])
+        pre_tool_use.append(HookMatcher(matcher="Bash", hooks=[inject_proxy]))
+        hooks["PreToolUse"] = pre_tool_use
+        opts.hooks = hooks
 
     def _build_options(self, inputs: Any, stream: bool = False, **kwargs) -> Any:
         """Build ClaudeAgentOptions from kwargs.
@@ -112,7 +146,7 @@ class CcAgentWrapper(BaseAgentWrapper):
 
         if "setting_sources" not in kwargs and kwargs.get("skills") is None:
             kwargs["setting_sources"] = []
-        skip_keys = {"job_tools", "output_schema", "api_key", "base_url", "credential"}
+        skip_keys = {"job_tools", "injected_job_kwargs", "output_schema", "api_key", "base_url", "credential"}
         option_fields = {field.name for field in fields(ClaudeAgentOptions)}
         option_kwargs = {key: value for key, value in kwargs.items() if key not in skip_keys and key in option_fields}
         option_kwargs["disallowed_tools"] = list(
@@ -147,6 +181,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                 },
             )
         opts.env.update(extra_env_dict)
+        self._add_bash_proxy_hook(opts)
         self.session_path.mkdir(parents=True, exist_ok=True)
         opts.cwd = opts.cwd or self.cwd
         claude_config_dir = self.session_path / "claude_config"
@@ -162,7 +197,10 @@ class CcAgentWrapper(BaseAgentWrapper):
             opts.mcp_servers = dict(opts.mcp_servers)
             if self.MCP_SERVER_NAME in opts.mcp_servers:
                 raise ValueError(f"mcp_servers already contains reserved server name {self.MCP_SERVER_NAME!r}")
-            sdk_tools = [self._make_tool(job, kwargs.get("tool_context_id")) for job in resolved_jobs]
+            sdk_tools = [
+                self._make_tool(job, kwargs.get("tool_context_id"), kwargs.get("injected_job_kwargs"))
+                for job in resolved_jobs
+            ]
             opts.mcp_servers[self.MCP_SERVER_NAME] = create_sdk_mcp_server(
                 name=self.MCP_SERVER_NAME,
                 tools=sdk_tools,
@@ -383,6 +421,12 @@ class CcAgentWrapper(BaseAgentWrapper):
         return chunks
 
     # ----- reply / reply_stream --------------------------------------------
+
+    async def compact_session(self, session_id: str) -> None:
+        """Compact a Claude Code session through its native command."""
+        result = await self.reply("/compact", resume=session_id)
+        if result["last_message"].get("is_error"):
+            raise RuntimeError("Claude Code session compaction failed")
 
     async def reply(self, inputs: Any, **kwargs) -> dict:
         from claude_agent_sdk import query, ResultMessage

@@ -117,7 +117,11 @@ def _interpolate_timestamps(items: list[dict]) -> list[dict]:
 
 @R.register("beam_auto_memory_step")
 class BeamAutoMemoryStep(AutoMemoryStep):
-    """AutoMemoryStep variant that interpolates timestamps and pins daily_write to the resolved day."""
+    """AutoMemoryStep variant that interpolates timestamps for BEAM sessions.
+
+    Date pinning for ``daily_write`` is handled by the base class through the
+    agent wrapper's server-owned ``injected_job_kwargs``.
+    """
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
         # Interpolate timestamps: if any message carries created_at, fill in
@@ -154,6 +158,3 @@ class BeamAutoMemoryStep(AutoMemoryStep):
             "(Each turn below is prefixed with [Ln] = its line number in the source file.)"
         )
         return preamble + "\n\n" + "\n\n".join(turns)
-
-    def _reply_extra_kwargs(self, day: str) -> dict:
-        return {"tool_defaults": {"daily_write": {"date": day}}}
