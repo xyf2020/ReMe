@@ -23,10 +23,6 @@ _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
 _DEFAULT_LIMIT_ENV: Final = "REME_SEARCH_LIMIT"
 _DEFAULT_LIMIT: Final = 5
-#: Comma-separated chunk sources to exclude from search results (ablation switch).
-#: Supported values: "session" (raw dialog transcripts under dialog_dir),
-#: "note" (auto-memory markdown under daily_dir, incl. day indexes).
-_EXCLUDE_SOURCES_ENV: Final = "REME_SEARCH_EXCLUDE_SOURCES"
 
 
 def _default_limit() -> int:
@@ -37,29 +33,6 @@ def _default_limit() -> int:
         return int(value)
     except ValueError:
         return _DEFAULT_LIMIT
-
-
-def _excluded_sources() -> frozenset[str]:
-    raw = os.getenv(_EXCLUDE_SOURCES_ENV, "")
-    return frozenset(t.strip().lower() for t in raw.split(",") if t.strip())
-
-
-def _make_path_keeper(excluded: frozenset[str], dialog_dir: str, daily_dir: str):
-    """Build a predicate deciding whether a workspace-relative path stays in results."""
-    dialog_dir = (dialog_dir or "").strip("/")
-    daily_dir = (daily_dir or "").strip("/")
-
-    def _keep(raw_path: str) -> bool:
-        path = (raw_path or "").strip().strip("/")
-        if "session" in excluded and path.endswith(".jsonl") and (
-            path == dialog_dir or path.startswith(f"{dialog_dir}/")
-        ):
-            return False
-        if "note" in excluded and path.endswith(".md") and path.startswith(f"{daily_dir}/"):
-            return False
-        return True
-
-    return _keep
 
 
 @R.register("search_v2_step")
@@ -198,24 +171,6 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
             self.file_store.keyword_search(query, candidates, search_filter),
         )
 
-        # Ablation switch: drop chunks from excluded sources before fusion so the
-        # remaining source still fills the result limit.
-        excluded_sources = _excluded_sources()
-        keep_path = None
-        if excluded_sources:
-            keep_path = _make_path_keeper(
-                excluded_sources,
-                self.config_value("dialog_dir"),
-                self.config_value("daily_dir"),
-            )
-            pre_v, pre_k = len(vector_results), len(keyword_results)
-            vector_results = [c for c in vector_results if keep_path(c.path)]
-            keyword_results = [c for c in keyword_results if keep_path(c.path)]
-            self.logger.info(
-                f"[{self.name}] source ablation excluded={sorted(excluded_sources)} "
-                f"vector {pre_v}->{len(vector_results)} keyword {pre_k}->{len(keyword_results)}",
-            )
-
         self.logger.info(
             f"[{self.name}] query={query!r} candidates={candidates} "
             f"vector_hits={len(vector_results)} keyword_hits={len(keyword_results)}",
@@ -252,11 +207,6 @@ class SearchV2Step(_ToolContextDedupMixin, BaseStep):
         link_expansion: dict[str, dict] = (
             await expand_links(self.file_store, unique_paths, max_links_per_direction) if expand_links_enabled else {}
         )
-        if keep_path is not None and link_expansion:
-            # Keep the ablation airtight: hide linked neighbors from excluded sources too.
-            for expansion in link_expansion.values():
-                for direction in ("outlinks", "inlinks"):
-                    expansion[direction] = [n for n in expansion.get(direction, []) if keep_path(n.get("path", ""))]
 
         dialog_dir = self.config_value("dialog_dir")
         self.context.response.answer = format_chunks_answer(
