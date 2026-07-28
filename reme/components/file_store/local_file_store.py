@@ -450,6 +450,18 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.dump()
         await self.file_graph.dump()
 
+    # -- maintenance -----------------------------------------------------------
+
+    async def optimize_index(self) -> None:
+        """Idle-time maintenance: compact the keyword index when present.
+
+        The in-memory chunk map and file graph carry no deferred compaction
+        debt; the keyword index may hold lazy-deleted docs, so delegate to its
+        ``optimize_index`` for physical reclaim.
+        """
+        if self.keyword_index:
+            await self.keyword_index.optimize_index()
+
     # -- CRUD -----------------------------------------------------------------
 
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
@@ -539,6 +551,16 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
         nodes: list[FileNode] = await self.file_graph.get_nodes(paths)
+        await self._delete_nodes(nodes)
+
+    async def _delete_nodes(self, nodes: list[FileNode]) -> None:
+        """Delete already-resolved nodes and their chunks.
+
+        Split out so subclasses that need the node list before deletion (e.g. to
+        capture chunk ids for a vector index) can reuse it instead of querying the
+        graph a second time.
+        """
+        assert self.file_graph is not None
         if not nodes:
             return
         deleted_chunk_ids = [cid for n in nodes for cid in n.chunk_ids]
