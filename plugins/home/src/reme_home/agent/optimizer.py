@@ -24,7 +24,7 @@ from ..code.repository import (
     status,
 )
 from ..evaluation.artifacts import contained, read_json, write_json
-from ..evaluation.inputs import EvaluationSpec, load_inputs
+from ..evaluation.inputs import EvaluationSpec, evaluation_head, load_inputs
 from ..evaluation.history import read_state
 from ..evaluation.budget import validate_max_evaluations, validation_budget_status
 from ..evaluation.reuse import verify_case_reuse
@@ -318,7 +318,17 @@ def verify_evaluation(home, path, commit, *, baseline=False):
     # Failed construction may omit answers. Baseline infrastructure errors remain
     # observations; final evidence already passed the strict checks above.
     for key, row in rows.items():
-        if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
+        observed = set(row.get("queries", {}))
+        failure_path = contained(run, f"cases/{key}/failure.json")
+        failure = read_json(failure_path) if baseline and failure_path.is_file() else {}
+        unobserved_answers = (
+            baseline and failure.get("stage") == "answer" and failure.get("failure_kind") == "infra_error"
+        )
+        if observed - set(queries[key]) or (
+            observed != set(queries[key])
+            and row.get("construction", {}).get("status") != "failure"
+            and not unobserved_answers
+        ):
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
     if reused:
         verify_case_reuse(home, run, manifest, commit)
@@ -405,12 +415,16 @@ def validation_budget_tool(home, max_evaluations):
     )
 
 
-def sampled_checkout(home):
-    """Host-owned baseline retries remain full evaluations on init."""
+def evaluation_checkout(home):
+    """Bind the host-owned sampling decision to one actual checkout."""
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
-        current = status(repo, record)
-        return current["current_branch"] != "init" and current["commit_sha"] != record["code"]["initial_commit"]
+        commit, branch = evaluation_head(repo)
+        return {
+            "expected_commit": commit,
+            "expected_branch": branch,
+            "sampling": branch != "init" and commit != record["code"]["initial_commit"],
+        }
 
 
 def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, budget_exhausted=False):
@@ -433,8 +447,8 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
         if not isinstance(state, AgentState):
             raise TypeError("Cycle reminders require the host-injected AgentState")
         started_before = await blocking(lambda: set(read_state(home)["started_validations"])) if not debug else set()
-        sampling = not debug and await blocking(sampled_checkout, home)
-        if target_queries and not debug and not sampling:
+        checkout = await blocking(evaluation_checkout, home) if not debug else {"sampling": False}
+        if target_queries and not debug and not checkout["sampling"]:
             raise ValueError(
                 "Targeted evaluation requires a candidate branch; init retries cover the full training set",
             )
@@ -442,7 +456,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
             **options,
             **({"max_evaluations": max_evaluations} if not debug else {}),
             debug=debug,
-            sampling=sampling,
+            **checkout,
             record_history=True,
             case_ids=None,
             query_ids=None,
@@ -524,6 +538,8 @@ class HomeOptimizeStep(BaseStep):
                     **{**options, "fail_fast": False},
                     debug=False,
                     sampling=False,
+                    expected_commit=read_json(home / "metadata/preparation.json")["code"]["initial_commit"],
+                    expected_branch="init",
                     record_history=True,
                     case_ids=None,
                     query_ids=None,

@@ -9,24 +9,27 @@ You can run the optimization agent or edit and evaluate candidates yourself.
 HoMe experiment you want to run again. Keep the old workspace to consult
 previous evaluation results.
 
-New evaluations retain the verified source hash and review evidence alongside
-each reused snapshot. Final validation checks this retained copy even after the
-source evaluation is archived. Older evaluations without the retained source
-hash still require their original source artifacts for validation.
+Final candidate validation requires a verified construction snapshot and the
+hash recorded during its review for each reused case. HoMe retains both for
+automatically selected replay, so validation can proceed after the source
+evaluation is archived.
 
 ## 1. Install and configure
 
-HoMe requires ReMe 0.4.2.4 or newer. From the ReMe repository root, in the
-Python environment where you run ReMe:
+HoMe requires ReMe 0.4.3 or newer. Install or upgrade both packages together
+from the same checkout. Older HoMe installations import the Docker runner
+from ReMe and need to be reinstalled when upgrading to this layout.
+
+Run these commands from the repository root in the Python environment where
+you run ReMe.
 
 ```bash
-pip install -e '.[benchmark-docker]'
-reme plugins install plugins/home
+python -m pip install -e . ./plugins/home
 reme plugins install plugins/beam-judge
 ```
 
 For LongMemEval, install `plugins/lme-judge` in place of `plugins/beam-judge`.
-Set up Docker and build the [benchmark base image](../../deploy/benchmark_docker/README.md).
+Set up Docker and build the [benchmark base image](src/reme_home/evaluation/docker/README.md).
 Set `LLM_API_KEY`, `EMBEDDING_API_KEY`, and the base URLs for your providers
 in the environment or the repository root's `.env`. Use `JUDGE_MODEL_NAME`
 to override the judge model. On Linux, the default setup for optimization

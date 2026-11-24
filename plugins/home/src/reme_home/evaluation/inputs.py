@@ -10,12 +10,11 @@ import zlib
 
 from pydantic import Field, field_validator, model_validator
 
-from deploy.benchmark_docker import SourceSnapshot
-
 from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
 from ..preparation.data.basic import artifact_name_key, validate_artifact_ids
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
+from .docker import SourceSnapshot
 from ..preparation.spec import SpecModel
 from ..code.repository import validate_repository
 from ..sampling import SamplingPolicy
@@ -30,6 +29,8 @@ class EvaluationSpec(SpecModel):
     reuse_construction_from: str | None = Field(default=None, min_length=1)
     debug: bool = False
     sampling: bool = False
+    expected_commit: str | None = Field(default=None, min_length=1)
+    expected_branch: str | None = Field(default=None, min_length=1)
     record_history: bool = True
     max_evaluations: int | None = Field(default=None, ge=1)
     sampling_policy: SamplingPolicy | None = None
@@ -70,6 +71,8 @@ class EvaluationSpec(SpecModel):
     @model_validator(mode="after")
     def resolve_mode(self):
         """Debug stops on failure by default and never reuses scored evidence."""
+        if (self.expected_commit is None) != (self.expected_branch is None):
+            raise ValueError("expected_commit and expected_branch must be supplied together")
         if self.max_evaluations is not None and not self.debug and not self.record_history:
             raise ValueError("Budgeted formal evaluations require record_history=true")
         if self.debug and self.reuse_construction_from:
@@ -140,7 +143,16 @@ def select_cases(cases: dict[str, CaseSpec], case_ids, query_ids):
     return result
 
 
-def snapshot_code(home: Path, record: dict):
+def evaluation_head(repository: Path, *, expected_commit=None, expected_branch=None):
+    """Read the actual checkout and reject a stale host sampling decision."""
+    commit = git(repository, "rev-parse", "--verify", "HEAD^{commit}")
+    branch = git(repository, "branch", "--show-current")
+    if expected_commit is not None and (commit, branch) != (expected_commit, expected_branch):
+        raise ValueError("Checkout changed before evaluation; retry on the intended commit and branch")
+    return commit, branch
+
+
+def snapshot_code(home: Path, record: dict, *, expected_commit=None, expected_branch=None):
     """Combine fixed runtime with clean current HEAD; reject all uncommitted changes."""
     repository, _ = validate_repository(home, record)
     runtime = contained(home, "code/runtime", directory=True)
@@ -148,8 +160,11 @@ def snapshot_code(home: Path, record: dict):
         raise ValueError("Fixed runtime has changed since preparation")
     if git(repository, "status", "--porcelain=v2", "--untracked-files=all", "--ignore-submodules=none"):
         raise ValueError("Commit candidate changes before evaluation")
-    commit = git(repository, "rev-parse", "--verify", "HEAD^{commit}")
-    checkout_branch = git(repository, "branch", "--show-current")
+    commit, checkout_branch = evaluation_head(
+        repository,
+        expected_commit=expected_commit,
+        expected_branch=expected_branch,
+    )
     branch = "init" if commit == record["code"]["initial_commit"] else checkout_branch
     entity_id(branch)
     entries = git_tree(repository, commit)
@@ -199,11 +214,16 @@ def load_reuse_source(home: Path, value: str, fingerprints: dict, *, sampling: b
         if sampling:
             raise ValueError("Replay sampling requires a completed scored training-set run")
         raise ValueError("Reuse requires a completed training-set evaluation")
+    validate_reuse_fingerprints(manifest, fingerprints)
+    return source, manifest
+
+
+def validate_reuse_fingerprints(manifest: dict, fingerprints: dict):
+    """Apply the same compatibility checks to original and retained snapshots."""
     source_fingerprints = manifest.get("fingerprints")
     for key in ("dataset", "construction_config"):
         if not isinstance(source_fingerprints, dict) or source_fingerprints.get(key) != fingerprints[key]:
             raise ValueError(f"Construction source has incompatible {key}")
-    return source, manifest
 
 
 def validate_snapshot(source: Path, case_id: str, max_artifact_bytes: int):

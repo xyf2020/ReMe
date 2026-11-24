@@ -6,8 +6,6 @@ import shutil
 import traceback
 from contextlib import nullcontext
 
-from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
-
 from reme.components.base import BaseComponent
 from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.async_utils import finish_cleanup
@@ -26,7 +24,16 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
-from .inputs import EvaluationSpec, load_inputs, replay_sampling_inputs, reuse_inputs, select_cases, snapshot_code
+from .docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
+from .inputs import (
+    EvaluationSpec,
+    evaluation_head,
+    load_inputs,
+    replay_sampling_inputs,
+    reuse_inputs,
+    select_cases,
+    snapshot_code,
+)
 from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
@@ -171,6 +178,15 @@ class HomeEvaluation(BaseComponent):
                 from ..agent.candidate_gate import admission_context, review_candidate
 
                 with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    if spec.expected_commit is not None:
+                        # Reject stale requests before the admission model sees another checkout.
+                        repository, _ = await blocking(validate_repository, self.workspace.home_path)
+                        await blocking(
+                            evaluation_head,
+                            repository,
+                            expected_commit=spec.expected_commit,
+                            expected_branch=spec.expected_branch,
+                        )
                     admission_checkout, context = await blocking(admission_context, self.workspace.home_path)
                 if context is not None:
                     admission = await review_candidate(
@@ -210,7 +226,12 @@ class HomeEvaluation(BaseComponent):
             )
             all_cases = {case.case_id: case for case in loaded_cases}
             cases = select_cases(all_cases, spec.case_ids, spec.query_ids)
-            snapshot, commit, branch, checkout_branch = snapshot_code(home, record)
+            snapshot, commit, branch, checkout_branch = snapshot_code(
+                home,
+                record,
+                expected_commit=spec.expected_commit,
+                expected_branch=spec.expected_branch,
+            )
             initial_baseline = not spec.debug and branch == "init"
             if initial_baseline and (
                 spec.sampling
@@ -286,7 +307,7 @@ class HomeEvaluation(BaseComponent):
             sources = previous_manifest.get("construction_sources", {})
             if not sources and previous_manifest.get("execution_mode") in {"query_only_replay", "mixed_validation"}:
                 raise ValueError("Recovery requires saved per-case construction sources")
-            sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources)
+            sources, archives = case_reuse_inputs(home, spec, cases, fingerprints, sources, previous=previous)
         elif spec.sampling and not spec.debug and not defer_sampling:
             source, verified_archives, eligibility = replay_sampling_inputs(home, spec, cases, fingerprints)
             plan = create_sampling_plan(
@@ -302,6 +323,7 @@ class HomeEvaluation(BaseComponent):
         else:
             source, archives = reuse_inputs(home, spec, cases, fingerprints)
             sources = {case.case_id: source for case in cases} if source else {}
+        sources = {case_id: {**source, "workspace_sha256": archives[case_id][1]} for case_id, source in sources.items()}
         return (
             record,
             dataset,
@@ -522,6 +544,8 @@ class HomeEvaluation(BaseComponent):
                         "reuse_construction_from",
                         "debug",
                         "sampling_policy",
+                        "expected_commit",
+                        "expected_branch",
                     },
                 ),
                 "judge": self.judge.identity(dataset.dataset),
